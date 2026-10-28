@@ -56,6 +56,17 @@ Statuses are **Erreicht** (`yes`), **Noch nicht** (`no`), and **Nicht beurteilt*
 
 The classroom creator is its owner. Under **Gemeinsam arbeiten**, they can share with another registered teacher by email or revoke access. Collaborators can edit students, periods, and assessments. Only the owner can change membership or delete students. Deleting a student requires confirmation and removes that student's assessments across every period in that classroom. Renaming a student applies across all periods.
 
+## Attendance
+
+Select a class, then open **Anwesenheit**. Attendance is independent of mathematics grading periods and defaults to the teacher's local date.
+
+- **Kind für Kind** shows each pupil with **Anwesend** and **Abwesend** buttons. Each choice saves before advancing. Teachers can skip a pupil, go back to correct a choice, and resume unrecorded pupils. The summary distinguishes present, absent, and still open.
+- **Kalender & Liste** provides a month calendar and date input for historical entries and corrections. Each pupil has present and absent checkboxes. Selecting one replaces the other; removing the selected checkmark clears the entry. Changes save automatically. Both views use the same daily records.
+
+Attendance stores one record per class, date, and student ID, including who last saved it and when. Unrecorded pupils are distinct from absent pupils. Duplicate names remain separate. Class owners and shared editors can read and edit attendance; access revocation applies immediately to subsequent requests. Renaming a pupil preserves records; deleting one removes their attendance across all dates along with their assessments. Concurrent edits use the last saved value; reload to retrieve another teacher's changes.
+
+The API supports `GET /api/classrooms/{class}/attendance/{YYYY-MM-DD}` and `PATCH` at the same path with `{"changes":[{"student_id":"…","status":"present"}]}`. Status is `present`, `absent`, or `null` to clear. Dates are validated calendar dates; invalid batches are rejected atomically.
+
 ## The mathematics form
 
 The PDF at the repository root is embedded in the Rust executable, together with `backend/criteria.json`. The checked-in catalog contains **354 criteria** across **10 sections**, on pages **5–16**, retaining the source wording and levels Basis–10.

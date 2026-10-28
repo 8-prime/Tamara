@@ -3,6 +3,8 @@
   import { api } from "./api.js";
   import Status from "./Status.svelte";
   import Icon from "./Icon.svelte";
+  import Attendance from "./Attendance.svelte";
+  let feature = $state("learning");
   let teacher = $state(null),
     booting = $state(true),
     authMode = $state("login"),
@@ -619,9 +621,26 @@
         ></a
       >
       <div class="sidebar-label">DEIN ARBEITSPLATZ</div>
-      <div class="nav-item active">
-        <span>▦</span>Lernentwicklung<span class="tiny-tag">MATHE</span>
-      </div>
+      <nav aria-label="Werkzeuge" class="feature-nav">
+        <button
+          class="nav-item"
+          class:active={feature === "learning"}
+          aria-current={feature === "learning" ? "page" : undefined}
+          disabled={saving || busy}
+          onclick={() => (feature = "learning")}
+        >
+          <span>▦</span>Lernentwicklung<span class="tiny-tag">MATHE</span>
+        </button>
+        <button
+          class="nav-item"
+          class:active={feature === "attendance"}
+          aria-current={feature === "attendance" ? "page" : undefined}
+          disabled={saving || busy}
+          onclick={() => (feature = "attendance")}
+        >
+          <span>✓</span>Anwesenheit
+        </button>
+      </nav>
       <div class="class-nav-header">
         <span class="sidebar-label">DEINE KLASSEN</span><button
           class="icon-button"
@@ -710,6 +729,40 @@
               ><Icon name="plus" /> Erste Klasse anlegen</button
             >
           </div>
+        {:else if feature === "attendance"}
+          <section class="page-heading">
+            <div>
+              <span class="eyebrow">DEINE KLASSE · JEDEN TAG IM BLICK</span>
+              <h1>Wer ist heute da<span>?</span></h1>
+              <p>
+                Gehe die Klasse Kind für Kind durch oder bearbeite einen Tag im
+                Kalender.
+              </p>
+            </div>
+            <span class="heading-art" aria-hidden="true">✓</span>
+          </section>
+          {#if loading}
+            <div class="empty-panel"><p>Klasse wird geladen …</p></div>
+          {:else if !students.length}
+            <div class="empty-panel">
+              <h3>Wer lernt in deiner Klasse?</h3>
+              <p>Füge zuerst die Kinder deiner Klasse hinzu.</p>
+              <button class="primary" onclick={() => openModal("students")}
+                ><Icon name="plus" /> Kinder hinzufügen</button
+              >
+            </div>
+          {:else}
+            {#key classId}
+              <Attendance
+                {classId}
+                {students}
+                className={currentClass?.name || ""}
+                bind:saving
+                disabled={busy || !!modal}
+                onerror={fail}
+              />
+            {/key}
+          {/if}
         {:else}
           <section class="page-heading">
             <div>
@@ -1488,8 +1541,8 @@
         >
       {:else if modal === "delete"}<p>
           <strong>{students.find((s) => s.id === targetId)?.name}</strong> wird mit
-          allen Bewertungen aus allen Zeiträumen dieser Klasse gelöscht. Das kann
-          nicht rückgängig gemacht werden.
+          allen Bewertungen und Anwesenheitseinträgen dieser Klasse gelöscht. Das
+          kann nicht rückgängig gemacht werden.
         </p>{/if}
       <div class="modal-actions">
         <button

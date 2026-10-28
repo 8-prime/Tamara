@@ -1,4 +1,5 @@
 mod archive;
+mod attendance;
 mod pdf;
 
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
@@ -637,7 +638,7 @@ struct Change {
     achieved_on: Option<String>,
 }
 
-fn valid_achievement_date(date: &str) -> bool {
+fn valid_date(date: &str) -> bool {
     let b = date.as_bytes();
     if b.len() != 10
         || b[4] != b'-'
@@ -706,7 +707,7 @@ async fn assess(
             return Err(bad("Die Bewertung muss yes, no oder null sein."));
         }
         if let Some(ref date) = ch.achieved_on {
-            if ch.value.as_deref() != Some("yes") || !valid_achievement_date(date) {
+            if ch.value.as_deref() != Some("yes") || !valid_date(date) {
                 return Err(bad(
                     "Ein Erreicht-Datum muss zur Bewertung Erreicht gehören und ein gültiges Datum im Format JJJJ-MM-TT sein.",
                 ));
@@ -874,6 +875,10 @@ fn routes_with_frontend(s: AppState, dist: &std::path::Path) -> Router {
         .route("/classrooms", get(classes).post(create_class))
         .route("/criteria", get(criteria))
         .route("/classrooms/{class}/workspace", get(workspace))
+        .route(
+            "/classrooms/{class}/attendance/{date}",
+            get(attendance::list).patch(attendance::save),
+        )
         .route("/classrooms/{class}/students", post(add_students))
         .route(
             "/classrooms/{class}/students/{student}",

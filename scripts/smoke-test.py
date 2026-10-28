@@ -108,6 +108,10 @@ def run():
             teacher.call('/auth/login','POST',{'email':c['email'],'password':'wrong'},status=401)
             teacher.call('/auth/login','POST',{'email':c['email'],'password':c['password']})
             assert teacher.call('/auth/me')['id']==b['id']
+            attendance=prefix+'/attendance/2026-10-28'
+            admin.call(attendance,'PATCH',{'changes':[{'student_id':students[0]['id'],'status':'present'},{'student_id':students[1]['id'],'status':'absent'}]},status=204)
+            attendance_before_restart=admin.call(attendance)
+            assert len(attendance_before_restart)==2
             # Confirm WAL persistence by restarting the same database.
             server.terminate();server.wait(timeout=5)
             server=subprocess.Popen([str(ROOT/'target/debug/tamara')],cwd=ROOT,env=env,stdout=log,stderr=log)
@@ -115,7 +119,8 @@ def run():
                 try:
                     assert len(admin.call('/classrooms'))==2;break
                 except (OSError,urllib.error.URLError):time.sleep(.05)
-            print('PASS: invite-only signup, admin tokens, login/logout, sharing/revocation, isolation, tri-state grading, atomic bulk updates, period snapshots, student management, persistence, and 20-page PDF export.')
+            assert admin.call(attendance)==attendance_before_restart
+            print('PASS: attendance restart persistence, invite-only signup, admin tokens, login/logout, sharing/revocation, isolation, tri-state grading, atomic bulk updates, period snapshots, student management, persistence, and 20-page PDF export.')
         finally:
             server.terminate();server.wait(timeout=5);log.close()
 

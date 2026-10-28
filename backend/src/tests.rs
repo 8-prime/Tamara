@@ -854,7 +854,7 @@ async fn period_zip_exports_all_students_with_selected_period_and_permissions() 
 #[test]
 fn achievement_dates_validate_real_calendar_days() {
     for date in ["2024-02-29", "2000-02-29", "2026-10-28", "2026-01-31"] {
-        assert!(valid_achievement_date(date), "{date}");
+        assert!(valid_date(date), "{date}");
     }
     for date in [
         "2026-02-29",
@@ -869,7 +869,7 @@ fn achievement_dates_validate_real_calendar_days() {
         "２０２６-10-28",
         "",
     ] {
-        assert!(!valid_achievement_date(date), "{date}");
+        assert!(!valid_date(date), "{date}");
     }
 }
 
@@ -1051,4 +1051,221 @@ async fn legacy_assessments_receive_their_last_recorded_date() {
             .unwrap();
     assert_eq!(yes.as_deref(), Some("2026-09-15"));
     assert!(no.is_none());
+}
+
+#[tokio::test]
+async fn attendance_is_daily_shared_atomic_and_independent_of_periods() {
+    let (app, db) = fixture().await;
+    let mut owner = Client::new(app.clone());
+    let mut editor = Client::new(app.clone());
+    let mut anonymous = Client::new(app.clone());
+    let teacher = owner
+        .call(
+            "/auth/register",
+            "POST",
+            registration(
+                "attendance-owner@example.test",
+                "fixture-setup-token-at-least-24-characters",
+            ),
+            200,
+        )
+        .await;
+    let invite = owner
+        .call(
+            "/admin/invitations",
+            "POST",
+            json!({"label":"Attendance editor"}),
+            200,
+        )
+        .await;
+    editor
+        .call(
+            "/auth/register",
+            "POST",
+            registration(
+                "attendance-editor@example.test",
+                invite["token"].as_str().unwrap(),
+            ),
+            200,
+        )
+        .await;
+    let class = owner
+        .call(
+            "/classrooms",
+            "POST",
+            json!({"name":"Attendance class","school_year":"2026/27"}),
+            200,
+        )
+        .await;
+    let class = class["id"].as_str().unwrap();
+    let prefix = format!("/classrooms/{class}");
+    owner
+        .call(
+            &format!("{prefix}/students"),
+            "POST",
+            json!({"names":["Same Name","Same Name","Unmarked Child"]}),
+            200,
+        )
+        .await;
+    let workspace = owner.get(&format!("{prefix}/workspace")).await;
+    assert_eq!(workspace["periods"], json!([]));
+    let students = workspace["students"].as_array().unwrap();
+    let s0 = students[0]["id"].as_str().unwrap();
+    let s1 = students[1]["id"].as_str().unwrap();
+    let endpoint = format!("{prefix}/attendance/2026-10-28");
+    let yesterday = format!("{prefix}/attendance/2026-10-27");
+    assert_eq!(owner.get(&endpoint).await, json!([]));
+    anonymous.call(&endpoint, "GET", Value::Null, 401).await;
+    editor.call(&endpoint, "GET", Value::Null, 404).await;
+    let changes = json!({"changes":[{"student_id":s0,"status":"present"},{"student_id":s1,"status":"absent"}]});
+    anonymous
+        .call(&endpoint, "PATCH", changes.clone(), 401)
+        .await;
+    editor.call(&endpoint, "PATCH", changes.clone(), 404).await;
+    owner
+        .raw(&endpoint, "PATCH", changes.clone(), 403, false)
+        .await;
+    owner.call(&endpoint, "PATCH", changes, 204).await;
+    let records = owner.get(&endpoint).await;
+    assert_eq!(records.as_array().unwrap().len(), 2);
+    assert_eq!(
+        records
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["student_id"] == s0)
+            .unwrap()["status"],
+        "present"
+    );
+    assert_eq!(records[0]["updated_by"], teacher["id"]);
+    assert!(records[0]["updated_at"].is_i64());
+    assert_eq!(owner.get(&yesterday).await, json!([]));
+    for date in [
+        "2026-02-29",
+        "2026-04-31",
+        "0000-01-01",
+        "2026-1-01",
+        "not-a-date",
+    ] {
+        let invalid = format!("{prefix}/attendance/{date}");
+        owner.call(&invalid, "GET", Value::Null, 400).await;
+        owner
+            .call(
+                &invalid,
+                "PATCH",
+                json!({"changes":[{"student_id":s0,"status":"present"}]}),
+                400,
+            )
+            .await;
+    }
+    assert_eq!(
+        owner.get(&format!("{prefix}/attendance/2024-02-29")).await,
+        json!([])
+    );
+    owner
+        .call(&endpoint, "PATCH", json!({"changes":[]}), 400)
+        .await;
+    owner.call(&endpoint, "PATCH", json!({"changes":[{"student_id":s0,"status":"absent"},{"student_id":"unknown","status":"present"}]}), 400).await;
+    owner.call(&endpoint, "PATCH", json!({"changes":[{"student_id":s0,"status":"absent"},{"student_id":s1,"status":"late"}]}), 400).await;
+    owner.call(&endpoint, "PATCH", json!({"changes":[{"student_id":s0,"status":"absent"},{"student_id":s0,"status":null}]}), 400).await;
+    assert_eq!(owner.get(&endpoint).await, records);
+    let other = owner
+        .call(
+            "/classrooms",
+            "POST",
+            json!({"name":"Other class","school_year":"2026/27"}),
+            200,
+        )
+        .await;
+    let other_endpoint = format!(
+        "/classrooms/{}/attendance/2026-10-28",
+        other["id"].as_str().unwrap()
+    );
+    assert_eq!(owner.get(&other_endpoint).await, json!([]));
+    owner
+        .call(
+            &other_endpoint,
+            "PATCH",
+            json!({"changes":[{"student_id":s0,"status":"present"}]}),
+            400,
+        )
+        .await;
+    owner
+        .call(
+            &format!("{prefix}/teachers"),
+            "POST",
+            json!({"email":"attendance-editor@example.test"}),
+            204,
+        )
+        .await;
+    assert_eq!(editor.get(&endpoint).await, records);
+    editor
+        .call(
+            &yesterday,
+            "PATCH",
+            json!({"changes":[{"student_id":s0,"status":"absent"}]}),
+            204,
+        )
+        .await;
+    assert_eq!(owner.get(&endpoint).await, records);
+    editor.call(&endpoint, "PATCH", json!({"changes":[{"student_id":s0,"status":"absent"},{"student_id":s1,"status":null}]}), 204).await;
+    let corrected = owner.get(&endpoint).await;
+    assert_eq!(corrected.as_array().unwrap().len(), 1);
+    assert_eq!(corrected[0]["status"], "absent");
+    let editor_id = editor.get("/auth/me").await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(corrected[0]["updated_by"], editor_id);
+    // Rebuilding the router reads the same persisted records.
+    let state = AppState {
+        db: db.clone(),
+        secure_cookie: true,
+        setup_hash: None,
+        attempts: Arc::new(Mutex::new(HashMap::new())),
+    };
+    let mut reloaded = Client::new(routes(state));
+    reloaded.cookie = owner.cookie.clone();
+    assert_eq!(reloaded.get(&endpoint).await, corrected);
+    owner
+        .call(
+            &format!("{prefix}/teachers/{editor_id}"),
+            "DELETE",
+            Value::Null,
+            204,
+        )
+        .await;
+    editor.call(&endpoint, "GET", Value::Null, 404).await;
+    editor
+        .call(
+            &endpoint,
+            "PATCH",
+            json!({"changes":[{"student_id":s0,"status":"present"}]}),
+            404,
+        )
+        .await;
+    owner
+        .call(
+            &format!("{prefix}/students/{s0}"),
+            "PATCH",
+            json!({"name":"Renamed child"}),
+            204,
+        )
+        .await;
+    assert_eq!(owner.get(&endpoint).await, corrected);
+    owner
+        .call(
+            &format!("{prefix}/students/{s0}"),
+            "DELETE",
+            Value::Null,
+            204,
+        )
+        .await;
+    assert_eq!(owner.get(&endpoint).await, json!([]));
+    assert_eq!(owner.get(&yesterday).await, json!([]));
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM attendance")
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
 }
