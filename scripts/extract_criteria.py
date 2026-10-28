@@ -30,6 +30,17 @@ SECTIONS = {
 def clean(text):
     return re.sub(r'\s+', ' ', text.replace('\x07', '').replace('\u00ad', '')).strip()
 
+def source_band(page, x, y):
+    # The source marks target stages with two gray tones. Read the actual
+    # background instead of inferring it from a stage number.
+    for drawing in page.get_drawings():
+        fill = drawing['fill']
+        if (fill and drawing['rect'].width > 400
+                and drawing['rect'].contains(pymupdf.Point(x, y))
+                and max(fill) - min(fill) < .05):
+            return 'light' if sum(fill) / len(fill) > .85 else 'dark'
+    return 'white'
+
 result = []
 doc = pymupdf.open(SOURCE)
 for page_no, (domain, section, subtitle) in SECTIONS.items():
@@ -73,6 +84,7 @@ for page_no, (domain, section, subtitle) in SECTIONS.items():
         symbols = [t for bb,t,_ in lines if 55 < bb[0] < 80 and abs(bb[1]-bbox[1]) < 2]
         result.append(dict(id=f'mathe-p{page_no:02}-{idx+1:03}', domain=domain,
             section=section, subtitle=subtitle, level=level, label=text,
+            band=source_band(page, 105, spans[0]['origin'][1]-3.1),
             symbol=''.join(re.split(r'\b(?:kann|kennt|versteht)\b', s)[0].strip() for s in symbols), page=page_no, x=82.0,
             y=round(spans[0]['origin'][1]-3.1,3), page_height=round(page.rect.height,3)))
 

@@ -1,3 +1,4 @@
+mod archive;
 mod pdf;
 
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
@@ -475,6 +476,7 @@ struct Assessment {
     value: String,
     updated_by: String,
     updated_at: i64,
+    achieved_on: Option<String>,
 }
 #[derive(Serialize, FromRow)]
 struct Collaborator {
@@ -507,7 +509,7 @@ async fn workspace(
         .or_else(|| periods.first().map(|p| p.id.clone()));
     let assessments = if let Some(ref p) = period {
         check_period(&s, &class, p).await?;
-        sqlx::query_as::<_,Assessment>("SELECT student_id,criterion_id,value,updated_by,updated_at FROM math_assessments WHERE period_id=?").bind(p).fetch_all(&s.db).await?
+        sqlx::query_as::<_,Assessment>("SELECT student_id,criterion_id,value,updated_by,updated_at,achieved_on FROM math_assessments WHERE period_id=?").bind(p).fetch_all(&s.db).await?
     } else {
         vec![]
     };
@@ -622,7 +624,7 @@ async fn create_period(
     .execute(&mut *tx)
     .await?;
     if let Some(source) = p.source_period_id {
-        sqlx::query("INSERT INTO math_assessments(classroom_id,period_id,student_id,criterion_id,value,updated_by,updated_at) SELECT classroom_id,?,student_id,criterion_id,value,?,unixepoch() FROM math_assessments WHERE period_id=? AND classroom_id=?").bind(&id).bind(&t.id).bind(source).bind(&class).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO math_assessments(classroom_id,period_id,student_id,criterion_id,value,updated_by,updated_at,achieved_on) SELECT classroom_id,?,student_id,criterion_id,value,?,unixepoch(),achieved_on FROM math_assessments WHERE period_id=? AND classroom_id=?").bind(&id).bind(&t.id).bind(source).bind(&class).execute(&mut *tx).await?;
     }
     tx.commit().await?;
     Ok(Json(json!({"id":id})))
@@ -632,7 +634,42 @@ struct Change {
     student_id: String,
     criterion_id: String,
     value: Option<String>,
+    achieved_on: Option<String>,
 }
+
+fn valid_achievement_date(date: &str) -> bool {
+    let b = date.as_bytes();
+    if b.len() != 10
+        || b[4] != b'-'
+        || b[7] != b'-'
+        || !b
+            .iter()
+            .enumerate()
+            .all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
+    {
+        return false;
+    }
+    let year = date[..4].parse::<u32>().unwrap();
+    let month = date[5..7].parse::<usize>().unwrap();
+    let day = date[8..].parse::<u32>().unwrap();
+    let leap = year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400));
+    let days = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    year > 0 && (1..=12).contains(&month) && day > 0 && day <= days[month - 1]
+}
+
 #[derive(Deserialize)]
 struct Changes {
     changes: Vec<Change>,
@@ -668,12 +705,21 @@ async fn assess(
         if ch.value.as_deref().is_some_and(|v| v != "yes" && v != "no") {
             return Err(bad("Die Bewertung muss yes, no oder null sein."));
         }
+        if let Some(ref date) = ch.achieved_on {
+            if ch.value.as_deref() != Some("yes") || !valid_achievement_date(date) {
+                return Err(bad(
+                    "Ein Erreicht-Datum muss zur Bewertung Erreicht gehören und ein gültiges Datum im Format JJJJ-MM-TT sein.",
+                ));
+            }
+        }
     }
     let mut tx = s.db.begin().await?;
     for ch in c.changes {
         if let Some(value) = ch.value {
-            sqlx::query("INSERT INTO math_assessments(classroom_id,period_id,student_id,criterion_id,value,updated_by) VALUES(?,?,?,?,?,?) ON CONFLICT(period_id,student_id,criterion_id) DO UPDATE SET value=excluded.value,updated_by=excluded.updated_by,updated_at=unixepoch()")
-                .bind(&class).bind(&period).bind(ch.student_id).bind(ch.criterion_id).bind(value).bind(&t.id).execute(&mut *tx).await?;
+            // Explicit dates allow earlier observations. Re-saving an achieved
+            // proficiency keeps its original date; changing to no clears it.
+            sqlx::query("INSERT INTO math_assessments(classroom_id,period_id,student_id,criterion_id,value,updated_by,achieved_on) VALUES(?,?,?,?,?,?,CASE WHEN ?='yes' THEN COALESCE(?,date('now')) ELSE NULL END) ON CONFLICT(period_id,student_id,criterion_id) DO UPDATE SET value=excluded.value,updated_by=excluded.updated_by,updated_at=unixepoch(),achieved_on=CASE WHEN excluded.value='yes' THEN COALESCE(?,math_assessments.achieved_on,excluded.achieved_on) ELSE NULL END")
+                .bind(&class).bind(&period).bind(ch.student_id).bind(ch.criterion_id).bind(&value).bind(&t.id).bind(&value).bind(&ch.achieved_on).bind(&ch.achieved_on).execute(&mut *tx).await?;
         } else {
             sqlx::query("DELETE FROM math_assessments WHERE period_id=? AND student_id=? AND criterion_id=?").bind(&period).bind(ch.student_id).bind(ch.criterion_id).execute(&mut *tx).await?;
         }
@@ -759,6 +805,55 @@ async fn export_pdf(
     );
     Ok(r)
 }
+// Read the roster and assessments in one snapshot before rendering PDFs.
+async fn export_zip(
+    State(s): State<AppState>,
+    h: HeaderMap,
+    Path((class, period)): Path<(String, String)>,
+) -> Result<Response> {
+    let t = auth(&s, &h).await?;
+    member(&s, &class, &t.id).await?;
+    let mut tx = s.db.begin().await?;
+    let (year, period_name) = sqlx::query_as::<_, (String, String)>(
+        "SELECT c.school_year,p.name FROM classrooms c JOIN periods p ON p.classroom_id=c.id WHERE c.id=? AND p.id=?",
+    )
+    .bind(&class).bind(&period).fetch_optional(&mut *tx).await?.ok_or_else(missing)?;
+    let students = sqlx::query_as::<_, Student>(
+        "SELECT id,name FROM students WHERE classroom_id=? ORDER BY name COLLATE NOCASE,id",
+    )
+    .bind(&class)
+    .fetch_all(&mut *tx)
+    .await?;
+    if students.is_empty() {
+        return Err(bad("Diese Klasse hat noch keine Kinder für den Export."));
+    }
+    let assessments = sqlx::query_as::<_, (String, String)>(
+        "SELECT a.student_id,a.criterion_id FROM math_assessments a JOIN students st ON st.id=a.student_id WHERE a.period_id=? AND st.classroom_id=? AND a.value='yes'",
+    ).bind(&period).bind(&class).fetch_all(&mut *tx).await?;
+    tx.commit().await?;
+    let mut marks: HashMap<String, Vec<String>> = HashMap::new();
+    for (student, criterion) in assessments {
+        marks.entry(student).or_default().push(criterion);
+    }
+    let bytes =
+        tokio::task::spawn_blocking(move || archive::render(students, year, period_name, marks))
+            .await
+            .map_err(internal)?
+            .map_err(internal)?;
+    let mut r = Response::new(Body::from(bytes));
+    r.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/zip"),
+    );
+    r.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_static("attachment; filename=\"mathematik-klasse.zip\""),
+    );
+    r.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(r)
+}
+
 fn routes(s: AppState) -> Router {
     let dist = std::env::var("TAMARA_FRONTEND_DIR").unwrap_or_else(|_| "frontend/dist".into());
     routes_with_frontend(s, std::path::Path::new(&dist))
@@ -789,6 +884,7 @@ fn routes_with_frontend(s: AppState, dist: &std::path::Path) -> Router {
             "/classrooms/{class}/periods/{period}/assessments",
             patch(assess),
         )
+        .route("/classrooms/{class}/periods/{period}/zip", get(export_zip))
         .route("/classrooms/{class}/teachers", post(share))
         .route("/classrooms/{class}/teachers/{teacher}", delete(unshare))
         .route(

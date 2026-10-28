@@ -27,11 +27,13 @@
     mode = $state("student");
   let section = $state(""),
     level = $state("all"),
+    schoolGrade = $state("all"),
     search = $state(""),
     rosterSearch = $state("");
   let criterionId = $state(""),
     selected = $state(new Set()),
-    matrixPage = $state(0);
+    matrixPage = $state(0),
+    exportingZip = $state(false);
   let modal = $state(""),
     dialog = $state(null),
     fieldName = $state(""),
@@ -50,16 +52,36 @@
     "Basis",
     ...Array.from({ length: 10 }, (_, i) => String(i + 1).padStart(2, "0")),
   ];
+  const gradeRanges = [
+    { id: "1", first: 1, last: 4, target: "03" },
+    { id: "2", first: 3, last: 6, target: "05" },
+    { id: "3", first: 5, last: 8, target: "07" },
+    { id: "4", first: 7, last: 10, target: "09" },
+  ];
+  const gradeRange = $derived(gradeRanges.find((g) => g.id === schoolGrade));
+  const relevantLevels = $derived(
+    gradeRange
+      ? levels.filter(
+          (l) =>
+            l !== "Basis" &&
+            Number(l) >= gradeRange.first &&
+            Number(l) <= gradeRange.last,
+        )
+      : levels,
+  );
   const currentClass = $derived(classrooms.find((c) => c.id === classId));
   const students = $derived(workspace?.students || []),
     periods = $derived(workspace?.periods || []);
   const currentPeriod = $derived(periods.find((p) => p.id === periodId)),
     currentStudent = $derived(students.find((s) => s.id === studentId));
   const sections = $derived([...new Set(catalog.map((c) => c.section))]);
+  const domains = $derived([...new Set(catalog.map((c) => c.domain))]);
+  const sectionInfo = $derived(catalog.find((c) => c.section === section));
   const filtered = $derived(
     catalog.filter(
       (c) =>
         (!section || c.section === section) &&
+        relevantLevels.includes(c.level) &&
         (level === "all" || c.level === level) &&
         (!search ||
           c.label
@@ -80,7 +102,7 @@
   const grades = $derived.by(() => {
     const m = {};
     for (const a of workspace?.assessments || [])
-      m[a.student_id + ":" + a.criterion_id] = a.value;
+      m[a.student_id + ":" + a.criterion_id] = a;
     return m;
   });
   const assessedCount = $derived(workspace?.assessments?.length || 0),
@@ -92,6 +114,7 @@
     levels
       .map((l) => ({
         level: l,
+        band: filtered.find((c) => c.level === l)?.band || "white",
         criteria: filtered.filter((c) => c.level === l),
       }))
       .filter((g) => g.criteria.length),
@@ -102,7 +125,14 @@
     matrixPages = $derived(Math.max(1, Math.ceil(filtered.length / 8)));
   const editable = $derived(!!periodId && !saving && !loading && !busy);
   function value(s, c) {
-    return grades[s + ":" + c] || null;
+    return grades[s + ":" + c]?.value || null;
+  }
+  function achievedOn(s, c) {
+    return grades[s + ":" + c]?.achieved_on || null;
+  }
+  function today() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
   function countFor(s, v = null) {
     return (workspace?.assessments || []).filter(
@@ -125,7 +155,8 @@
       classrooms = [];
     }
   }
-  function resetFilters() {
+  function resetFilters(resetGrade = true) {
+    if (resetGrade) schoolGrade = "all";
     level = "all";
     search = "";
     matrixPage = 0;
@@ -234,6 +265,13 @@
   }
   async function save(changes) {
     if (!editable || !changes.length) return;
+    changes = changes.map((c) => ({
+      ...c,
+      achieved_on:
+        c.value === "yes"
+          ? c.achieved_on || achievedOn(c.student_id, c.criterion_id) || today()
+          : null,
+    }));
     saving = true;
     error = "";
     notice = "";
@@ -261,8 +299,10 @@
       saving = false;
     }
   }
-  function grade(s, c, v) {
-    return save([{ student_id: s, criterion_id: c, value: v }]);
+  function grade(s, c, v, date = null) {
+    return save([
+      { student_id: s, criterion_id: c, value: v, achieved_on: date },
+    ]);
   }
   function toggleSelected(id) {
     const next = new Set(selected);
@@ -404,6 +444,41 @@
       busy = false;
     }
   }
+  function download(blob, filename) {
+    const url = URL.createObjectURL(blob),
+      a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  }
+  function filenamePart(name) {
+    return name.replace(/[\\/:*?"<>|\x00-\x1f]/g, "-").trim() || "Mathematik";
+  }
+  async function exportZip() {
+    if (!periodId || !students.length || !editable) return;
+    busy = true;
+    exportingZip = true;
+    error = "";
+    try {
+      const r = await fetch(
+        `/api/classrooms/${classId}/periods/${periodId}/zip`,
+      );
+      if (!r.ok) {
+        const e = await r.json();
+        throw new Error(e.error || "Der ZIP-Export ist fehlgeschlagen.");
+      }
+      download(
+        await r.blob(),
+        `Mathematik-${filenamePart(currentClass.name)}-${filenamePart(currentPeriod.name)}.zip`,
+      );
+    } catch (e) {
+      fail(e);
+    } finally {
+      busy = false;
+      exportingZip = false;
+    }
+  }
   async function exportPdf() {
     if (!currentStudent || !periodId || saving) return;
     busy = true;
@@ -416,12 +491,10 @@
         const e = await r.json();
         throw new Error(e.error || "Der Export ist fehlgeschlagen.");
       }
-      const url = URL.createObjectURL(await r.blob()),
-        a = document.createElement("a");
-      a.href = url;
-      a.download = `Mathematik-${currentStudent.name}-${currentPeriod.name}.pdf`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 30000);
+      download(
+        await r.blob(),
+        `Mathematik-${filenamePart(currentStudent.name)}-${filenamePart(currentPeriod.name)}.pdf`,
+      );
     } catch (e) {
       fail(e);
     } finally {
@@ -693,6 +766,15 @@
                 </div>
               </div>
               <div class="period-controls">
+                <button
+                  class="secondary small export-all"
+                  onclick={exportZip}
+                  disabled={!editable || !students.length}
+                  title="Ein PDF pro Kind für den ausgewählten Zeitraum herunterladen"
+                  >{exportingZip
+                    ? "ZIP wird erstellt …"
+                    : "↓ Alle PDFs als ZIP"}</button
+                >
                 <label class="sr-only" for="period">Beurteilungszeitraum</label
                 ><select
                   id="period"
@@ -764,16 +846,39 @@
                 <label class="filter-section"
                   ><span>Kompetenzbereich</span><select
                     bind:value={section}
-                    onchange={resetFilters}
-                    >{#each sections as sec}<option value={sec}>{sec}</option
-                      >{/each}</select
+                    onchange={() => resetFilters(false)}
+                    >{#each domains as domain}<optgroup label={domain}>
+                        {#each sections.filter((sec) => catalog.find((c) => c.section === sec)?.domain === domain) as sec}
+                          <option value={sec}>{sec}</option>
+                        {/each}
+                      </optgroup>{/each}</select
                   ></label
-                ><label class="filter-level"
+                ><label class="filter-grade">
+                  <span>Jahrgang · nach PDF S. 3</span>
+                  <select
+                    bind:value={schoolGrade}
+                    onchange={() => {
+                      level = "all";
+                      matrixPage = 0;
+                      selected = new Set();
+                    }}
+                  >
+                    <option value="all">Alle Jahrgänge · Basis–10</option>
+                    {#each gradeRanges as g}
+                      <option value={g.id}
+                        >Jahrgang {g.id} · {String(g.first).padStart(
+                          2,
+                          "0",
+                        )}–{String(g.last).padStart(2, "0")}</option
+                      >
+                    {/each}
+                  </select>
+                </label><label class="filter-level"
                   ><span>Entwicklungsstufe</span><select
                     bind:value={level}
                     onchange={() => (matrixPage = 0)}
                     ><option value="all">Alle Stufen</option
-                    >{#each levels as l}<option value={l}
+                    >{#each relevantLevels as l}<option value={l}
                         >{l === "Basis" ? "Basis" : "Stufe " + l}</option
                       >{/each}</select
                   ></label
@@ -785,6 +890,31 @@
                     bind:value={search}
                     oninput={() => (matrixPage = 0)}
                   /></label
+                >
+              </div>
+              <div class="pdf-topic" aria-label="Gliederung der PDF-Vorlage">
+                <div class="pdf-domain">{sectionInfo?.domain}</div>
+                <div class="pdf-section">{section}</div>
+                <div class="pdf-subtitle">{sectionInfo?.subtitle}</div>
+              </div>
+              <div class="pdf-key">
+                <span
+                  ><i class="band-swatch light"></i><i class="band-swatch dark"
+                  ></i>Grau: Zielvorgaben (Regelstandard), wie im PDF</span
+                >
+                {#if gradeRange}<span class="grade-range-note"
+                    >Jahrgang {schoolGrade}: Stufen {String(
+                      gradeRange.first,
+                    ).padStart(2, "0")}–{String(gradeRange.last).padStart(
+                      2,
+                      "0",
+                    )} · Zielstufe {gradeRange.target}{schoolGrade === "4"
+                      ? " (Halbjahr: 08)"
+                      : ""}</span
+                  >{/if}
+                <span
+                  >Symbole und Reihenfolge wie in der Vorlage · {filtered.length}
+                  Kompetenzen</span
                 >
               </div>
               {#if mode === "student"}
@@ -852,33 +982,51 @@
                         disabled={saving || busy}>↓ PDF exportieren</button
                       >
                     </div>
-                    <div class="section-caption">
-                      <span>{filtered[0]?.domain || section}</span><strong
-                        >{section}</strong
-                      ><span>{filtered.length} Kompetenzen</span>
-                    </div>
                     <div class="criteria-scroll">
-                      {#each grouped as group}<div class="level-heading">
-                          <span class="level-badge"
-                            >{group.level === "Basis"
-                              ? "BASIS"
-                              : "STUFE " + group.level}</span
-                          ><span>{group.criteria.length} Kompetenzen</span>
-                        </div>
-                        {#each group.criteria as c}<div class="criterion-row">
-                            <div class="criterion-copy">
-                              <p>{c.label}</p>
-                              <small>PDF · Seite {c.page}</small>
-                            </div>
-                            <Status
-                              value={value(studentId, c.id)}
-                              onchoose={(v) => grade(studentId, c.id, v)}
-                              disabled={!editable}
-                              label={`${currentStudent?.name}: ${c.label}`}
-                            />
-                          </div>{/each}{/each}{#if !filtered.length}<div
-                          class="empty-panel"
+                      {#each grouped as group}
+                        <section
+                          class="pdf-level"
+                          data-band={group.band}
+                          aria-label={group.level === "Basis"
+                            ? "Basis"
+                            : "Stufe " + group.level}
                         >
+                          <div class="level-heading">
+                            <span class="level-badge"
+                              >{group.level === "Basis"
+                                ? "BASIS"
+                                : "STUFE " + group.level}</span
+                            >
+                            {#if group.band !== "white"}<strong
+                                >Zielvorgaben (Regelstandard)</strong
+                              >{/if}
+                            <span class="level-count"
+                              >{group.criteria.length} Kompetenzen · PDF S. {group
+                                .criteria[0].page}</span
+                            >
+                          </div>
+                          {#each group.criteria as c}
+                            <div class="criterion-row">
+                              <span
+                                class="strand-symbol"
+                                title="Kompetenzstrang aus der PDF-Vorlage"
+                                aria-label={"Kompetenzstrang " + c.symbol}
+                                >{c.symbol}</span
+                              >
+                              <div class="criterion-copy"><p>{c.label}</p></div>
+                              <Status
+                                value={value(studentId, c.id)}
+                                achievedOn={achievedOn(studentId, c.id)}
+                                ondate={(date) =>
+                                  grade(studentId, c.id, "yes", date)}
+                                onchoose={(v) => grade(studentId, c.id, v)}
+                                disabled={!editable}
+                                label={`${currentStudent?.name}: ${c.label}`}
+                              />
+                            </div>
+                          {/each}
+                        </section>
+                      {/each}{#if !filtered.length}<div class="empty-panel">
                           <h3>Keine passende Kompetenz</h3>
                           <p>Ändere die Suche oder die Entwicklungsstufe.</p>
                           <button class="secondary" onclick={resetFilters}
@@ -906,13 +1054,25 @@
                       ><tr
                         ><th class="sticky-col"
                           >Kind<small>{students.length} Kinder</small></th
-                        >{#each matrixCriteria as c}<th
+                        >{#each matrixCriteria as c}<th data-band={c.band}
                             ><span class="level-badge small-badge"
                               >{c.level === "Basis"
                                 ? "BASIS"
                                 : "STUFE " + c.level}</span
                             >
-                            <p>{c.label}</p></th
+                            <p>
+                              <span
+                                class="strand-symbol"
+                                aria-label={"Kompetenzstrang " + c.symbol}
+                                >{c.symbol}</span
+                              >
+                              {c.label}
+                            </p>
+                            <small
+                              >PDF S. {c.page}{c.band !== "white"
+                                ? " · Zielvorgaben"
+                                : ""}</small
+                            ></th
                           >{/each}</tr
                       ></thead
                     ><tbody
@@ -928,10 +1088,13 @@
                                 >{initials(s.name)}</span
                               ><strong>{s.name}</strong></button
                             ></th
-                          >{#each matrixCriteria as c}<td
+                          >{#each matrixCriteria as c}<td data-band={c.band}
                               ><Status
                                 compact
                                 value={value(s.id, c.id)}
+                                achievedOn={achievedOn(s.id, c.id)}
+                                ondate={(date) =>
+                                  grade(s.id, c.id, "yes", date)}
                                 onchoose={(v) => grade(s.id, c.id, v)}
                                 disabled={!editable}
                                 label={`${s.name}: ${c.label}`}
@@ -969,24 +1132,67 @@
                     <div class="roster-heading">
                       <strong>KOMPETENZEN</strong><span>{filtered.length}</span>
                     </div>
-                    {#each filtered as c}<button
-                        class="criterion-pick"
-                        class:active={currentCriterion?.id === c.id}
-                        onclick={() => {
-                          criterionId = c.id;
-                          selected = new Set();
-                        }}
-                        disabled={saving}
-                        ><span class="level-badge small-badge"
-                          >{c.level === "Basis"
-                            ? "BASIS"
-                            : "STUFE " + c.level}</span
-                        >
-                        <p>{c.label}</p></button
-                      >{/each}
+                    {#each grouped as group}
+                      <section
+                        class="pdf-level"
+                        data-band={group.band}
+                        aria-label={group.level === "Basis"
+                          ? "Basis"
+                          : "Stufe " + group.level}
+                      >
+                        <div class="level-heading">
+                          <span class="level-badge"
+                            >{group.level === "Basis"
+                              ? "BASIS"
+                              : "STUFE " + group.level}</span
+                          >
+                          {#if group.band !== "white"}<span>Zielvorgaben</span
+                            >{/if}
+                        </div>
+                        {#each group.criteria as c}
+                          <button
+                            class="criterion-pick"
+                            class:active={currentCriterion?.id === c.id}
+                            aria-pressed={currentCriterion?.id === c.id}
+                            onclick={() => {
+                              criterionId = c.id;
+                              selected = new Set();
+                            }}
+                            disabled={saving}
+                          >
+                            <span
+                              class="strand-symbol"
+                              aria-label={"Kompetenzstrang " + c.symbol}
+                              >{c.symbol}</span
+                            >
+                            <p>{c.label}</p>
+                          </button>
+                        {/each}
+                      </section>
+                    {/each}
                   </aside>
                   <div class="multiselect-panel">
-                    {#if currentCriterion}<span class="eyebrow"
+                    {#if currentCriterion}
+                      <div
+                        class="criterion-context"
+                        data-band={currentCriterion.band}
+                      >
+                        <span
+                          class="strand-symbol"
+                          aria-label={"Kompetenzstrang " +
+                            currentCriterion.symbol}
+                          >{currentCriterion.symbol}</span
+                        >
+                        <span
+                          >{currentCriterion.level === "Basis"
+                            ? "Basis"
+                            : "Stufe " + currentCriterion.level} · PDF S. {currentCriterion.page}</span
+                        >
+                        {#if currentCriterion.band !== "white"}<strong
+                            >Zielvorgaben (Regelstandard)</strong
+                          >{/if}
+                      </div>
+                      <span class="eyebrow"
                         >{currentCriterion.domain} · {currentCriterion.level ===
                         "Basis"
                           ? "Basis"
@@ -1052,6 +1258,9 @@
                             ><Status
                               compact
                               value={value(s.id, currentCriterion.id)}
+                              achievedOn={achievedOn(s.id, currentCriterion.id)}
+                              ondate={(date) =>
+                                grade(s.id, currentCriterion.id, "yes", date)}
                               onchoose={(v) =>
                                 grade(s.id, currentCriterion.id, v)}
                               disabled={!editable}
@@ -1073,7 +1282,10 @@
                     ><i class="legend-dot no-dot"></i>Noch nicht</span
                   ><span><i class="legend-dot"></i>Nicht beurteilt</span>
                 </div>
-                <span>✓ Nur „Erreicht“ wird im PDF angekreuzt.</span>
+                <span
+                  >✓ Erreicht-Daten werden gespeichert. Im PDF erscheinen die
+                  Kreuze.</span
+                >
               </footer>
             {/if}
           </section>

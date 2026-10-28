@@ -406,6 +406,14 @@ async fn complete_teaching_workflow_and_permissions() {
         .call(&format!("{prefix}/workspace"), "GET", Value::Null, 404)
         .await;
     teacher.call(&pdfpath, "GET", Value::Null, 404).await;
+    teacher
+        .call(
+            &format!("{prefix}/periods/{period}/zip"),
+            "GET",
+            Value::Null,
+            404,
+        )
+        .await;
     admin
         .call(
             &format!("{prefix}/students/{s0}"),
@@ -623,4 +631,424 @@ async fn serves_frontend_and_api_from_the_same_router() {
     let mut client = Client::new(app);
     assert_eq!(client.get("/auth/status").await["setup_required"], true);
     std::fs::remove_dir_all(dist).unwrap();
+}
+
+// Check archive contents against PDF drawing operations, not just ZIP signatures.
+fn assert_period_archive(
+    bytes: Vec<u8>,
+    students: &[Value],
+    marks: &HashMap<String, usize>,
+    period: &str,
+) {
+    use std::io::Read;
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    assert_eq!(archive.len(), students.len());
+    let template = lopdf::Document::load_mem(include_bytes!(
+        "../../entwicklungsuebersicht_mathe_DRUCKVERSION_270925.pdf"
+    ))
+    .unwrap();
+    let source_pages = template.get_pages();
+    let mut names = HashSet::new();
+    for (index, student) in students.iter().enumerate() {
+        let mut entry = archive.by_index(index).unwrap();
+        let filename = entry.name().to_owned();
+        assert!(names.insert(filename.clone()));
+        assert!(filename.starts_with(&format!("{:03}-Mathematik-", index + 1)));
+        assert!(filename.ends_with(&format!("-{period}.pdf")));
+        assert!(!filename.contains('/') && !filename.contains('\\'));
+        assert!(entry.enclosed_name().is_some());
+        let mut pdf = Vec::new();
+        entry.read_to_end(&mut pdf).unwrap();
+        let doc = lopdf::Document::load_mem(&pdf).unwrap();
+        assert_eq!(doc.get_pages().len(), 20);
+        let cover = doc.extract_text(&[1]).unwrap();
+        assert!(cover.contains(student["name"].as_str().unwrap()), "{cover}");
+        assert!(cover.contains(period) && cover.contains("2026/27"));
+        let mut crosses = 0;
+        for (page, object) in doc.get_pages() {
+            if page == 1 {
+                continue;
+            }
+            let streams = doc.get_page_contents(object);
+            let original = template.get_page_contents(source_pages[&page]).len();
+            assert!(streams.len() == original || streams.len() == original + 1);
+            if streams.len() > original {
+                let stream = doc
+                    .get_object(*streams.last().unwrap())
+                    .unwrap()
+                    .as_stream()
+                    .unwrap();
+                let content = stream
+                    .decompressed_content()
+                    .unwrap_or_else(|_| stream.content.clone());
+                let ops = lopdf::content::Content::decode(&content).unwrap();
+                crosses += ops
+                    .operations
+                    .iter()
+                    .filter(|op| op.operator == "S")
+                    .count();
+            }
+        }
+        assert_eq!(
+            crosses,
+            *marks.get(student["id"].as_str().unwrap()).unwrap_or(&0)
+        );
+    }
+}
+
+#[tokio::test]
+async fn period_zip_exports_all_students_with_selected_period_and_permissions() {
+    let (app, _) = fixture().await;
+    let mut admin = Client::new(app.clone());
+    let mut outsider = Client::new(app.clone());
+    let mut shared = Client::new(app.clone());
+    admin
+        .call(
+            "/auth/register",
+            "POST",
+            registration(
+                "zip-admin@example.test",
+                "fixture-setup-token-at-least-24-characters",
+            ),
+            200,
+        )
+        .await;
+    let invitation = admin
+        .call(
+            "/admin/invitations",
+            "POST",
+            json!({"label":"ZIP colleague"}),
+            200,
+        )
+        .await;
+    let colleague = shared
+        .call(
+            "/auth/register",
+            "POST",
+            registration(
+                "zip-teacher@example.test",
+                invitation["token"].as_str().unwrap(),
+            ),
+            200,
+        )
+        .await;
+    let class = admin
+        .call(
+            "/classrooms",
+            "POST",
+            json!({"name":"ZIP-Klasse","school_year":"2026/27"}),
+            200,
+        )
+        .await;
+    let prefix = format!("/classrooms/{}", class["id"].as_str().unwrap());
+    let autumn = admin
+        .call(
+            &format!("{prefix}/periods"),
+            "POST",
+            json!({"name":"Herbst"}),
+            200,
+        )
+        .await;
+    let autumn_id = autumn["id"].as_str().unwrap();
+    let archive_path = format!("{prefix}/periods/{autumn_id}/zip");
+    outsider.call(&archive_path, "GET", Value::Null, 401).await;
+    shared.call(&archive_path, "GET", Value::Null, 404).await;
+    admin.call(&archive_path, "GET", Value::Null, 400).await;
+    admin
+        .call(
+            &format!("{prefix}/students"),
+            "POST",
+            json!({"names":["Mia Müller","Mia Müller","../Jonas\\Test","Amira Yılmaz"]}),
+            200,
+        )
+        .await;
+    let workspace = admin.get(&format!("{prefix}/workspace")).await;
+    let students = workspace["students"].as_array().unwrap();
+    let first = &pdf::catalog().criteria[0].id;
+    let last = &pdf::catalog().criteria.last().unwrap().id;
+    admin
+        .call(
+            &format!("{prefix}/periods/{autumn_id}/assessments"),
+            "PATCH",
+            json!({"changes":[
+                {"student_id":students[0]["id"],"criterion_id":first,"value":"yes"},
+                {"student_id":students[0]["id"],"criterion_id":last,"value":"yes"},
+                {"student_id":students[1]["id"],"criterion_id":first,"value":"no"},
+                {"student_id":students[3]["id"],"criterion_id":last,"value":"yes"}
+            ]}),
+            204,
+        )
+        .await;
+    let winter = admin
+        .call(
+            &format!("{prefix}/periods"),
+            "POST",
+            json!({"name":"Winter"}),
+            200,
+        )
+        .await;
+    let winter_path = format!("{prefix}/periods/{}/zip", winter["id"].as_str().unwrap());
+    let other = admin
+        .call(
+            "/classrooms",
+            "POST",
+            json!({"name":"Other","school_year":"2026/27"}),
+            200,
+        )
+        .await;
+    admin
+        .call(
+            &format!(
+                "/classrooms/{}/periods/{autumn_id}/zip",
+                other["id"].as_str().unwrap()
+            ),
+            "GET",
+            Value::Null,
+            404,
+        )
+        .await;
+    admin
+        .call(
+            &format!("{prefix}/periods/nonexistent/zip"),
+            "GET",
+            Value::Null,
+            404,
+        )
+        .await;
+    admin
+        .call(
+            &format!("{prefix}/teachers"),
+            "POST",
+            json!({"email":"zip-teacher@example.test"}),
+            204,
+        )
+        .await;
+    let bytes = shared
+        .raw(&archive_path, "GET", Value::Null, 200, true)
+        .await;
+    let output = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../output/pdf");
+    std::fs::create_dir_all(&output).unwrap();
+    std::fs::write(output.join("qa-period.zip"), &bytes).unwrap();
+    let marks = HashMap::from([
+        (students[0]["id"].as_str().unwrap().to_owned(), 2),
+        (students[3]["id"].as_str().unwrap().to_owned(), 1),
+    ]);
+    assert_period_archive(bytes, students, &marks, "Herbst");
+    assert_period_archive(
+        admin.raw(&winter_path, "GET", Value::Null, 200, true).await,
+        students,
+        &HashMap::new(),
+        "Winter",
+    );
+    admin
+        .call(
+            &format!("{prefix}/teachers/{}", colleague["id"].as_str().unwrap()),
+            "DELETE",
+            Value::Null,
+            204,
+        )
+        .await;
+    shared.call(&archive_path, "GET", Value::Null, 404).await;
+}
+
+#[test]
+fn achievement_dates_validate_real_calendar_days() {
+    for date in ["2024-02-29", "2000-02-29", "2026-10-28", "2026-01-31"] {
+        assert!(valid_achievement_date(date), "{date}");
+    }
+    for date in [
+        "2026-02-29",
+        "1900-02-29",
+        "2026-04-31",
+        "2026-13-01",
+        "2026-00-01",
+        "2026-01-00",
+        "0000-01-01",
+        "26-10-28",
+        "2026/10/28",
+        "２０２６-10-28",
+        "",
+    ] {
+        assert!(!valid_achievement_date(date), "{date}");
+    }
+}
+
+#[tokio::test]
+async fn achievement_dates_survive_saves_and_copies_and_validate_atomically() {
+    let (app, db) = fixture().await;
+    let mut client = Client::new(app);
+    client
+        .call(
+            "/auth/register",
+            "POST",
+            registration(
+                "dates@example.test",
+                "fixture-setup-token-at-least-24-characters",
+            ),
+            200,
+        )
+        .await;
+    let class = client
+        .call(
+            "/classrooms",
+            "POST",
+            json!({"name":"Dates","school_year":"2026/27"}),
+            200,
+        )
+        .await;
+    let prefix = format!("/classrooms/{}", class["id"].as_str().unwrap());
+    client
+        .call(
+            &format!("{prefix}/students"),
+            "POST",
+            json!({"names":["Mia Müller","Jonas Schmidt"]}),
+            200,
+        )
+        .await;
+    let period = client
+        .call(
+            &format!("{prefix}/periods"),
+            "POST",
+            json!({"name":"Herbst"}),
+            200,
+        )
+        .await;
+    let pid = period["id"].as_str().unwrap();
+    let workspace = client.get(&format!("{prefix}/workspace")).await;
+    let students = workspace["students"].as_array().unwrap();
+    let student = &students[0]["id"];
+    let second = &students[1]["id"];
+    let criterion = &pdf::catalog().criteria[0].id;
+    let endpoint = format!("{prefix}/periods/{pid}/assessments");
+    let change = json!({"student_id":student,"criterion_id":criterion,"value":"yes"});
+    client
+        .call(&endpoint, "PATCH", json!({"changes":[change]}), 204)
+        .await;
+    let today: String = sqlx::query_scalar("SELECT date('now')")
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert_eq!(
+        client.get(&format!("{prefix}/workspace")).await["assessments"][0]["achieved_on"],
+        today
+    );
+    let dated = json!({"student_id":student,"criterion_id":criterion,"value":"yes","achieved_on":"2026-09-15"});
+    client
+        .call(&endpoint, "PATCH", json!({"changes":[dated]}), 204)
+        .await;
+    client
+        .call(&endpoint, "PATCH", json!({"changes":[change]}), 204)
+        .await;
+    assert_eq!(
+        client.get(&format!("{prefix}/workspace")).await["assessments"][0]["achieved_on"],
+        "2026-09-15"
+    );
+    for (value, date) in [("yes", "2026-02-29"), ("no", "2026-10-01")] {
+        client.call(&endpoint, "PATCH", json!({"changes":[
+            {"student_id":second,"criterion_id":criterion,"value":"yes","achieved_on":"2026-10-01"},
+            {"student_id":student,"criterion_id":criterion,"value":value,"achieved_on":date}
+        ]}), 400).await;
+        assert_eq!(
+            client.get(&format!("{prefix}/workspace")).await["assessments"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+    let copy = client
+        .call(
+            &format!("{prefix}/periods"),
+            "POST",
+            json!({"name":"Winter","source_period_id":pid}),
+            200,
+        )
+        .await;
+    let copy_id = copy["id"].as_str().unwrap();
+    assert_eq!(
+        client
+            .get(&format!("{prefix}/workspace?period_id={copy_id}"))
+            .await["assessments"][0]["achieved_on"],
+        "2026-09-15"
+    );
+    client.call(&format!("{prefix}/periods/{copy_id}/assessments"), "PATCH", json!({"changes":[
+        {"student_id":student,"criterion_id":criterion,"value":"yes","achieved_on":"2026-10-20"}
+    ]}), 204).await;
+    assert_eq!(
+        client
+            .get(&format!("{prefix}/workspace?period_id={pid}"))
+            .await["assessments"][0]["achieved_on"],
+        "2026-09-15"
+    );
+    client
+        .call(
+            &endpoint,
+            "PATCH",
+            json!({"changes":[{"student_id":student,"criterion_id":criterion,"value":"no"}]}),
+            204,
+        )
+        .await;
+    assert!(
+        client
+            .get(&format!("{prefix}/workspace?period_id={pid}"))
+            .await["assessments"][0]["achieved_on"]
+            .is_null()
+    );
+    client
+        .call(&endpoint, "PATCH", json!({"changes":[change]}), 204)
+        .await;
+    assert_eq!(
+        client
+            .get(&format!("{prefix}/workspace?period_id={pid}"))
+            .await["assessments"][0]["achieved_on"],
+        today
+    );
+    client
+        .call(
+            &endpoint,
+            "PATCH",
+            json!({"changes":[{"student_id":student,"criterion_id":criterion,"value":null}]}),
+            204,
+        )
+        .await;
+    assert_eq!(
+        client
+            .get(&format!("{prefix}/workspace?period_id={pid}"))
+            .await["assessments"],
+        json!([])
+    );
+}
+
+#[tokio::test]
+async fn legacy_assessments_receive_their_last_recorded_date() {
+    let db = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(
+            SqliteConnectOptions::new()
+                .in_memory(true)
+                .foreign_keys(false),
+        )
+        .await
+        .unwrap();
+    sqlx::raw_sql(include_str!("../migrations/0001_initial.sql"))
+        .execute(&db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO math_assessments(classroom_id,period_id,student_id,criterion_id,value,updated_by,updated_at) VALUES('c','p','s','yes','yes','t',unixepoch('2026-09-15 12:34:56')),('c','p','s','no','no','t',unixepoch('2026-09-16 12:34:56'))").execute(&db).await.unwrap();
+    sqlx::raw_sql(include_str!("../migrations/0003_achievement_dates.sql"))
+        .execute(&db)
+        .await
+        .unwrap();
+    let yes: Option<String> =
+        sqlx::query_scalar("SELECT achieved_on FROM math_assessments WHERE value='yes'")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+    let no: Option<String> =
+        sqlx::query_scalar("SELECT achieved_on FROM math_assessments WHERE value='no'")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+    assert_eq!(yes.as_deref(), Some("2026-09-15"));
+    assert!(no.is_none());
 }

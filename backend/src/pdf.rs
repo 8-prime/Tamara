@@ -25,6 +25,7 @@ pub struct Criterion {
     pub level: String,
     pub label: String,
     pub symbol: String,
+    pub band: String,
     pub page: u32,
     pub x: f32,
     pub y: f32,
@@ -219,6 +220,14 @@ mod tests {
         let mut ids = HashSet::new();
         for c in &catalog().criteria {
             assert!(ids.insert(&c.id));
+            assert_eq!(
+                c.band,
+                match c.level.as_str() {
+                    "03" | "07" => "light",
+                    "05" | "09" => "dark",
+                    _ => "white",
+                }
+            );
             assert!((5..=16).contains(&c.page));
             assert!(c.x > 78.0 && c.x < 90.0 && c.y > 128.0 && c.y < 790.0);
             assert!(
