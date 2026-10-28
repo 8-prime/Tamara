@@ -2,6 +2,7 @@
   import { onMount, tick } from "svelte";
   import { api } from "./api.js";
   import Status from "./Status.svelte";
+  import Icon from "./Icon.svelte";
   let teacher = $state(null),
     booting = $state(true),
     authMode = $state("login"),
@@ -554,7 +555,7 @@
           title="Klasse anlegen"
           aria-label="Klasse anlegen"
           onclick={() => openModal("class")}
-          disabled={saving || loading}>+</button
+          disabled={saving || loading}><Icon name="plus" /></button
         >
       </div>
       <nav aria-label="Klassen">
@@ -572,13 +573,15 @@
           >{/each}<button
           class="new-class"
           onclick={() => openModal("class")}
-          disabled={saving || loading}>＋ Klasse anlegen</button
+          disabled={saving || loading}
+          ><Icon name="plus" /> Klasse anlegen</button
         >
       </nav>
       {#if teacher.is_admin}<button
           class="new-class admin-nav"
           onclick={() => openModal("invites")}
-          disabled={saving || loading}>⚿ Registrierungscodes</button
+          disabled={saving || loading}
+          ><Icon name="key" /> Registrierungscodes</button
         >{/if}
       <div class="sidebar-note">
         <span>✳</span>
@@ -631,7 +634,7 @@
               Lernentwicklung an einem Ort fest.
             </p>
             <button class="primary" onclick={() => openModal("class")}
-              >＋ Erste Klasse anlegen</button
+              ><Icon name="plus" /> Erste Klasse anlegen</button
             >
           </div>
         {:else}
@@ -657,7 +660,8 @@
               <button
                 class="text-button"
                 onclick={() => openModal("students")}
-                disabled={saving || loading}>＋ Hinzufügen</button
+                disabled={saving || loading}
+                ><Icon name="plus" /> Hinzufügen</button
               >
             </div>
             <div class="overview-card">
@@ -705,7 +709,7 @@
                   onclick={() => openModal("period")}
                   title="Zeitraum anlegen oder kopieren"
                   aria-label="Zeitraum anlegen oder kopieren"
-                  disabled={saving || loading}>+</button
+                  disabled={saving || loading}><Icon name="plus" /></button
                 >
               </div>
             </div>
@@ -744,7 +748,7 @@
                   kannst du mit einer Kopie daran anknüpfen.
                 </p>
                 <button class="primary" onclick={() => openModal("period")}
-                  >＋ Zeitraum anlegen</button
+                  ><Icon name="plus" /> Zeitraum anlegen</button
                 >
               </div>
             {:else if !students.length}<div class="empty-panel">
@@ -752,7 +756,7 @@
                 <h3>Wer lernt in deiner Klasse?</h3>
                 <p>Füge die Kinder einzeln oder als Namensliste hinzu.</p>
                 <button class="primary" onclick={() => openModal("students")}
-                  >＋ Kinder hinzufügen</button
+                  ><Icon name="plus" /> Kinder hinzufügen</button
                 >
               </div>
             {:else}

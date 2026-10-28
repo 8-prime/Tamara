@@ -335,10 +335,26 @@ button.primary,
   margin-top: 2px;
 }
 .new-class {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
   font-size: 11px;
   color: #73856b;
   background: none;
-  margin: 10px 10px;
+  margin: 4px 0;
+  text-align: left;
+  border-radius: 7px;
+}
+.new-class:hover {
+  background: #f0f3e9;
+}
+.ui-icon {
+  display: inline-block;
+  flex-shrink: 0;
+  vertical-align: -0.125em;
 }
 .sidebar-note {
   margin-top: auto;
@@ -1528,10 +1544,6 @@ dialog::backdrop {
   .overview-card .text-button {
     font-size: 0;
   }
-  .overview-card .text-button::after {
-    content: "+";
-    font-size: 17px;
-  }
   .stat-label {
     font-size: 8px;
   }
@@ -1742,6 +1754,8 @@ dialog::backdrop {
     font-size: 8px;
   }
   .new-class {
+    width: auto;
+    flex-shrink: 0;
     font-size: 10px;
     min-width: 120px;
   }
