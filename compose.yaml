@@ -1,0 +1,11 @@
+services:
+  tamara:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - tamara-data:/data
+    restart: unless-stopped
+
+volumes:
+  tamara-data:

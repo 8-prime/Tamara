@@ -1,0 +1,15 @@
+.git
+.github
+.agents
+.codex
+.venv
+**/node_modules
+**/dist
+target
+data
+tmp
+output
+.env
+.env.*
+**/*.sqlite*
+**/__pycache__

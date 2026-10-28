@@ -521,3 +521,106 @@ async fn invitation_can_only_be_claimed_once_concurrently() {
         2
     );
 }
+
+#[tokio::test]
+async fn serves_frontend_and_api_from_the_same_router() {
+    let (_, db) = fixture().await;
+    let dist = std::env::temp_dir().join(format!("tamara-frontend-test-{}", id()));
+    std::fs::create_dir_all(dist.join("assets")).unwrap();
+    let html = "<!doctype html><html><title>Tamara</title><body>Frontend</body></html>";
+    std::fs::write(dist.join("index.html"), html).unwrap();
+    std::fs::write(dist.join("assets/app.js"), "console.log('tamara');").unwrap();
+    std::fs::write(dist.join("assets/app.css"), "body{color:green}").unwrap();
+    let app = routes_with_frontend(
+        AppState {
+            db,
+            secure_cookie: false,
+            setup_hash: Some(hash("fixture-setup-token-at-least-24-characters")),
+            attempts: Arc::new(Mutex::new(HashMap::new())),
+        },
+        &dist,
+    );
+    for path in ["/", "/classrooms/example"] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert!(
+            response.headers()[header::CONTENT_TYPE]
+                .to_str()
+                .unwrap()
+                .starts_with("text/html")
+        );
+        assert_eq!(
+            response.into_body().collect().await.unwrap().to_bytes(),
+            html
+        );
+    }
+    for (path, mime) in [
+        ("/assets/app.js", "javascript"),
+        ("/assets/app.css", "text/css"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(
+            response.headers()[header::CONTENT_TYPE]
+                .to_str()
+                .unwrap()
+                .contains(mime)
+        );
+    }
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("HEAD")
+                .uri("/")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .is_empty()
+    );
+    for path in ["/api", "/api/does-not-exist"] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
+    }
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/assets/missing.js")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_ne!(
+        response.into_body().collect().await.unwrap().to_bytes(),
+        html
+    );
+    let mut client = Client::new(app);
+    assert_eq!(client.get("/auth/status").await["setup_required"], true);
+    std::fs::remove_dir_all(dist).unwrap();
+}

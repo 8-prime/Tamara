@@ -20,6 +20,27 @@ The administrator opens **Registrierungscodes** to issue invitations. Each token
 
 For development with frontend hot reload, run `cargo run` and `pnpm --dir frontend dev` in two terminals. Vite proxies `/api` to the Rust server. For a single command, use `./scripts/dev.sh`.
 
+## Docker
+
+```sh
+docker compose up --build -d
+docker compose logs tamara
+```
+
+Open **http://localhost:3000**. On a fresh database, the logs contain the setup token for creating the first administrator. The named `tamara-data` volume preserves the SQLite database when the container is replaced. `docker compose down` keeps that volume; `docker compose down --volumes` deletes it.
+
+The image builds the frontend with pnpm and the backend with Cargo in separate build stages. Its runtime contains the Rust executable, compiled frontend, and embedded-font license. A single Rust process serves the API, HTML, JavaScript, and CSS; no Node server or reverse proxy is required. Frontend routes return the app shell, while unknown API routes and missing bundles remain 404 responses.
+
+Without Compose:
+
+```sh
+docker build -t tamara:local .
+docker run -d --name tamara -p 3000:3000 -v tamara-data:/data tamara:local
+docker logs tamara
+```
+
+The container listens on `0.0.0.0:3000`, uses `/data/tamara.sqlite`, and runs as UID/GID `10001:10001`. When using a host directory instead of a named volume, make it writable by that UID. Configuration variables below can be supplied with `docker run --env`. `docker stop` sends SIGTERM and the server finishes in-flight requests before exiting.
+
 ## Teaching workflow
 
 1. Create a classroom with a name and school year.
@@ -75,6 +96,8 @@ cargo fmt --all --check
 cargo test
 ```
 
-The Rust suite exercises the real Axum router without requiring a network listener: invitation issuance/revocation/expiry and concurrent redemption, admin permissions, cookies and authentication, classroom isolation and sharing revocation, tri-state grading, atomic bulk updates, independent period copies, student management, and PDF export. The PDF tests check the template hash, mapping, page count, and the pages receiving overlays.
+The Rust suite exercises the real Axum router without requiring a network listener: invitation issuance/revocation/expiry and concurrent redemption, admin permissions, cookies and authentication, classroom isolation and sharing revocation, tri-state grading, atomic bulk updates, independent period copies, student management, and PDF export. It also verifies HTML and asset serving, frontend route fallback, HEAD requests, and separate 404 behavior for API routes and assets. The PDF tests check the template hash, mapping, page count, and the pages receiving overlays.
 
 The workflow test writes `output/pdf/qa-all-criteria.pdf`, a synthetic fully marked export for visual review. `scripts/smoke-test.py` additionally exercises a real HTTP server, restart persistence, and PDF validation when local sockets and Poppler's `pdfinfo` are available. It uses a disposable database and cleans up its server.
+
+After building the image, run `python3 scripts/container-smoke-test.py tamara:local` to verify the compiled frontend, HTTP API, non-root runtime, graceful shutdown, and account/session/classroom persistence across container replacement. This uses and removes an isolated test container and volume. CI builds the Docker image and runs this check on every push.

@@ -760,6 +760,11 @@ async fn export_pdf(
     Ok(r)
 }
 fn routes(s: AppState) -> Router {
+    let dist = std::env::var("TAMARA_FRONTEND_DIR").unwrap_or_else(|_| "frontend/dist".into());
+    routes_with_frontend(s, std::path::Path::new(&dist))
+}
+
+fn routes_with_frontend(s: AppState, dist: &std::path::Path) -> Router {
     let api = Router::new()
         .route("/auth/status", get(auth_status))
         .route("/auth/register", post(register))
@@ -795,13 +800,29 @@ fn routes(s: AppState) -> Router {
         })
         .layer(DefaultBodyLimit::max(1024 * 1024))
         .layer(middleware::from_fn(api_guard));
-    let dist = std::env::var("TAMARA_FRONTEND_DIR").unwrap_or_else(|_| "frontend/dist".into());
     Router::new()
         .nest("/api", api)
-        .fallback_service(
-            ServeDir::new(&dist).not_found_service(ServeFile::new(format!("{dist}/index.html"))),
-        )
+        // Missing bundles must stay 404s rather than return the SPA's HTML.
+        .nest_service("/assets", ServeDir::new(dist.join("assets")))
+        .fallback_service(ServeDir::new(dist).fallback(ServeFile::new(dist.join("index.html"))))
         .with_state(s)
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("install SIGTERM handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {},
+            _ = terminate.recv() => {},
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
 }
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -812,13 +833,19 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         )
         .init();
     let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:data/tamara.sqlite".into());
-    std::fs::create_dir_all("data")?;
     let options: SqliteConnectOptions = url
         .parse::<SqliteConnectOptions>()?
         .create_if_missing(true)
         .foreign_keys(true)
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
         .busy_timeout(Duration::from_secs(10));
+    if let Some(parent) = options
+        .get_filename()
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent)?;
+    }
     let db = SqlitePoolOptions::new()
         .max_connections(5)
         .connect_with(options)
@@ -855,9 +882,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("Tamara is ready at http://{addr}");
     axum::serve(listener, routes(s))
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
+        .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())
 }
