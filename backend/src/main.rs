@@ -1,5 +1,6 @@
 mod archive;
 mod attendance;
+mod backup;
 mod pdf;
 
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
@@ -30,6 +31,7 @@ use uuid::Uuid;
 #[derive(Clone)]
 struct AppState {
     db: SqlitePool,
+    backups: Option<Arc<backup::Backups>>,
     secure_cookie: bool,
     setup_hash: Option<String>,
     attempts: Arc<Mutex<HashMap<String, (u32, u64)>>>,
@@ -349,10 +351,21 @@ async fn admin(s: &AppState, h: &HeaderMap) -> Result<Teacher> {
     if !t.is_admin {
         return Err(AppError(
             StatusCode::FORBIDDEN,
-            "Nur Administratoren können Registrierungscodes verwalten.".into(),
+            "Diese Funktion ist nur für Administratoren verfügbar.".into(),
         ));
     }
     Ok(t)
+}
+async fn create_backup(State(s): State<AppState>, h: HeaderMap) -> Result<StatusCode> {
+    admin(&s, &h).await?;
+    let backups = s.backups.as_ref().ok_or_else(|| {
+        AppError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Datenbanksicherungen sind nicht verfügbar.".into(),
+        )
+    })?;
+    backups.manual().await.map_err(internal)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 #[derive(Serialize, FromRow)]
 struct Invitation {
@@ -872,6 +885,7 @@ fn routes_with_frontend(s: AppState, dist: &std::path::Path) -> Router {
             get(invitations).post(create_invitation),
         )
         .route("/admin/invitations/{id}", delete(revoke_invitation))
+        .route("/admin/backups", post(create_backup))
         .route("/classrooms", get(classes).post(create_class))
         .route("/criteria", get(criteria))
         .route("/classrooms/{class}/workspace", get(workspace))
@@ -947,6 +961,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     {
         std::fs::create_dir_all(parent)?;
     }
+    let database_path = options.get_filename().to_owned();
     let db = SqlitePoolOptions::new()
         .max_connections(5)
         .connect_with(options)
@@ -974,6 +989,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         None
     };
     let s = AppState {
+        backups: Some(Arc::new(backup::Backups::new(db.clone(), &database_path))),
         db,
         setup_hash,
         secure_cookie: std::env::var("TAMARA_SECURE_COOKIES").as_deref() == Ok("true"),
@@ -981,10 +997,15 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     };
     let addr = std::env::var("TAMARA_BIND").unwrap_or_else(|_| "127.0.0.1:3000".into());
     let listener = tokio::net::TcpListener::bind(&addr).await?;
+    let (shutdown, receiver) = tokio::sync::watch::channel(false);
+    let backup_task = s.backups.as_ref().unwrap().clone().start(receiver);
     tracing::info!("Tamara is ready at http://{addr}");
-    axum::serve(listener, routes(s))
+    let result = axum::serve(listener, routes(s))
         .with_graceful_shutdown(shutdown_signal())
-        .await?;
+        .await;
+    shutdown.send(true)?;
+    backup_task.await?;
+    result?;
     Ok(())
 }
 

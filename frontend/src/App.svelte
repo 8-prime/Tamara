@@ -12,6 +12,7 @@
     registrationToken = $state("");
   let invitations = $state([]),
     invitationToken = $state("");
+  let backupCreated = $state(false);
   let email = $state(""),
     password = $state(""),
     accountName = $state("");
@@ -329,6 +330,7 @@
     fieldEmail = "";
     fieldSource = "";
     invitationToken = "";
+    backupCreated = false;
     await tick();
     dialog.showModal();
     if (kind === "invites") {
@@ -350,6 +352,11 @@
     busy = true;
     error = "";
     try {
+      if (modal === "backup") {
+        await api("/admin/backups", { method: "POST" });
+        backupCreated = true;
+        return;
+      }
       if (modal === "invites") {
         const r = await api("/admin/invitations", {
           method: "POST",
@@ -669,12 +676,21 @@
           ><Icon name="plus" /> Klasse anlegen</button
         >
       </nav>
-      {#if teacher.is_admin}<button
+      {#if teacher.is_admin}
+        <div class="sidebar-label">ADMINISTRATION</div>
+        <button
           class="new-class admin-nav"
           onclick={() => openModal("invites")}
-          disabled={saving || loading}
+          disabled={saving || loading || busy}
           ><Icon name="key" /> Registrierungscodes</button
-        >{/if}
+        >
+        <button
+          class="new-class admin-nav"
+          onclick={() => openModal("backup")}
+          disabled={saving || loading || busy}
+          ><Icon name="backup" /> Datenbank sichern</button
+        >
+      {/if}
       <div class="sidebar-note">
         <span>✳</span>
         <p>Kleine Schritte.<br /><strong>Große Entwicklung.</strong></p>
@@ -1386,10 +1402,27 @@
           rename: "Name bearbeiten",
           delete: "Kind entfernen?",
           invites: "Registrierungscodes",
+          backup: "Datenbank sichern",
         }[modal]}
       </h2>
       {#if error}<div class="alert" role="alert">{error}</div>{/if}
-      {#if modal === "invites"}<p>
+      {#if modal === "backup"}
+        <p>
+          Erstelle eine Sicherung der gesamten Datenbank. Das ZIP-Archiv wird
+          privat auf dem Server neben der Datenbank gespeichert.
+          Manuelle Sicherungen bleiben erhalten.
+        </p>
+        <p>
+          Automatische Sicherungen werden jede Nacht um 02:00 UTC erstellt.
+          Davon werden höchstens sieben Sicherungen für bis zu eine Woche
+          aufbewahrt.
+        </p>
+        {#if backupCreated}
+          <div class="info-box" role="status">
+            Die Datenbanksicherung wurde erfolgreich auf dem Server erstellt.
+          </div>
+        {/if}
+      {:else if modal === "invites"}<p>
           Erstelle einen einmaligen Code für eine neue Lehrkraft. Codes sind
           sieben Tage gültig. Der vollständige Code wird nur direkt nach dem
           Erstellen angezeigt.
@@ -1550,16 +1583,18 @@
           class="secondary"
           onclick={closeModal}
           disabled={busy}
-          >{["manage", "share", "invites"].includes(modal)
+          >{["manage", "share", "invites", "backup"].includes(modal)
             ? "Schließen"
             : "Abbrechen"}</button
-        >{#if modal !== "manage" && (modal !== "share" || workspace?.role === "owner")}<button
+        >{#if modal !== "manage" && !(modal === "backup" && backupCreated) && (modal !== "share" || workspace?.role === "owner")}<button
             class:danger={modal === "delete"}
             class="primary"
             disabled={busy}
-            >{busy
-              ? "Wird gespeichert …"
-              : modal === "invites"
+            >{modal === "backup"
+              ? busy ? "Sicherung wird erstellt …" : "Sicherung erstellen"
+              : busy
+                ? "Wird gespeichert …"
+                : modal === "invites"
                 ? "Code erstellen"
                 : modal === "share"
                   ? "Zugriff freigeben"

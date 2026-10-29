@@ -77,12 +77,16 @@ async fn fixture() -> (Router, SqlitePool) {
         .connect("sqlite::memory:")
         .await
         .unwrap();
+    fixture_database(db).await
+}
+async fn fixture_database(db: SqlitePool) -> (Router, SqlitePool) {
     sqlx::migrate!("./migrations").run(&db).await.unwrap();
     for c in &pdf::catalog().criteria {
         sqlx::query("INSERT INTO math_criteria(id,label,domain,section,level,page,x,y) VALUES(?,?,?,?,?,?,?,?)").bind(&c.id).bind(&c.label).bind(&c.domain).bind(&c.section).bind(&c.level).bind(c.page).bind(c.x).bind(c.y).execute(&db).await.unwrap();
     }
     let state = AppState {
         db: db.clone(),
+        backups: None,
         secure_cookie: true,
         setup_hash: Some(hash("fixture-setup-token-at-least-24-characters")),
         attempts: Arc::new(Mutex::new(HashMap::new())),
@@ -91,6 +95,115 @@ async fn fixture() -> (Router, SqlitePool) {
 }
 fn registration(email: &str, token: &str) -> Value {
     json!({"name":"Lehrkraft Test","email":email,"password":"long-test-password-123","registration_token":token})
+}
+
+#[tokio::test]
+async fn only_admins_can_create_backups_and_archives_are_not_exposed() {
+    let root = std::env::temp_dir().join(format!("tamara-backup-api-{}", id()));
+    let dist = root.join("frontend");
+    std::fs::create_dir_all(&dist).unwrap();
+    let db = SqlitePoolOptions::new()
+        .connect_with(
+            SqliteConnectOptions::new()
+                .filename(root.join("database.sqlite"))
+                .create_if_missing(true)
+                .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal),
+        )
+        .await
+        .unwrap();
+    let (_, db) = fixture_database(db).await;
+    let html = "<!doctype html><title>Tamara</title>";
+    std::fs::write(dist.join("index.html"), html).unwrap();
+    let app = routes_with_frontend(
+        AppState {
+            db: db.clone(),
+            backups: Some(Arc::new(backup::Backups::new(
+                db.clone(),
+                &root.join("database.sqlite"),
+            ))),
+            secure_cookie: true,
+            setup_hash: Some(hash("fixture-setup-token-at-least-24-characters")),
+            attempts: Arc::new(Mutex::new(HashMap::new())),
+        },
+        &dist,
+    );
+    let mut admin = Client::new(app.clone());
+    admin.call("/admin/backups", "POST", Value::Null, 401).await;
+    admin
+        .call(
+            "/auth/register",
+            "POST",
+            registration(
+                "backup-admin@example.test",
+                "fixture-setup-token-at-least-24-characters",
+            ),
+            200,
+        )
+        .await;
+    let invitation = admin
+        .call(
+            "/admin/invitations",
+            "POST",
+            json!({"label":"Teacher"}),
+            200,
+        )
+        .await;
+    let mut teacher = Client::new(app.clone());
+    teacher
+        .call(
+            "/auth/register",
+            "POST",
+            registration(
+                "backup-teacher@example.test",
+                invitation["token"].as_str().unwrap(),
+            ),
+            200,
+        )
+        .await;
+    teacher
+        .call("/admin/backups", "POST", Value::Null, 403)
+        .await;
+    admin
+        .raw("/admin/backups", "POST", Value::Null, 403, false)
+        .await;
+    let directory = root.join("database.sqlite.backups");
+    assert!(!directory.exists());
+    admin.call("/admin/backups", "POST", Value::Null, 204).await;
+    let archives: Vec<_> = std::fs::read_dir(directory.join("manual"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert_eq!(archives.len(), 1);
+    let mut archive = zip::ZipArchive::new(std::fs::File::open(&archives[0]).unwrap()).unwrap();
+    assert_eq!(archive.len(), 1);
+    assert!(archive.by_name("database.sqlite").unwrap().size() > 0);
+    admin
+        .raw("/admin/backups", "GET", Value::Null, 405, true)
+        .await;
+    admin
+        .call("/admin/backups/anything.zip", "GET", Value::Null, 404)
+        .await;
+    for path in [
+        "/database.sqlite.backups/".to_string(),
+        format!(
+            "/database.sqlite.backups/manual/{}",
+            archives[0].file_name().unwrap().to_str().unwrap()
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "text/html");
+        assert_eq!(
+            response.into_body().collect().await.unwrap().to_bytes(),
+            html
+        );
+    }
+    drop(archive);
+    db.close().await;
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[tokio::test]
@@ -542,6 +655,7 @@ async fn serves_frontend_and_api_from_the_same_router() {
     let app = routes_with_frontend(
         AppState {
             db,
+            backups: None,
             secure_cookie: false,
             setup_hash: Some(hash("fixture-setup-token-at-least-24-characters")),
             attempts: Arc::new(Mutex::new(HashMap::new())),
@@ -1220,6 +1334,7 @@ async fn attendance_is_daily_shared_atomic_and_independent_of_periods() {
     // Rebuilding the router reads the same persisted records.
     let state = AppState {
         db: db.clone(),
+        backups: None,
         secure_cookie: true,
         setup_hash: None,
         attempts: Arc::new(Mutex::new(HashMap::new())),

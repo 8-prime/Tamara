@@ -98,7 +98,15 @@ Review the generated labels, levels, and rendered cross positions before changin
 
 Passwords use Argon2id. Sessions use random opaque tokens, stored hashed, with HttpOnly/SameSite=Strict cookies and seven-day expiry. State-changing API calls require `X-Tamara-Request: 1`; there is no cross-origin API access. Sharing checks also guard PDF exports. Bulk grading and period copies are transactional; invitation redemption is serialized with an immediate transaction. Login attempts are throttled per email in memory.
 
-For deployment, use HTTPS, secure cookies, a private terminal/log for initial setup, and persistent storage for the SQLite database. Back up SQLite using its online backup API or stop the server before copying the database and its WAL files together. Password reset, email delivery, moving students between classes, and live synchronization between browsers are outside this first version. Concurrent edits to the same assessment use the last saved value; reloading a classroom retrieves other teachers' changes.
+For deployment, use HTTPS, secure cookies, a private terminal/log for initial setup, and persistent storage for the SQLite database. Password reset, email delivery, moving students between classes, and live synchronization between browsers are outside this first version. Concurrent edits to the same assessment use the last saved value; reloading a classroom retrieves other teachers' changes.
+
+## Database backups
+
+Administrators can open **Administration → Datenbank sichern** and select **Sicherung erstellen**. The server creates a ZIP containing a standalone `database.sqlite` snapshot of the entire database, including committed WAL data, using SQLite's `VACUUM INTO`. The running application can continue to be used during the snapshot. The completed archive is published atomically; errors are reported in the dialog and server logs.
+
+Archives live in a private directory beside the database: for `data/tamara.sqlite`, this is `data/tamara.sqlite.backups/`, with separate `manual/` and `automatic/` subdirectories. On Unix these directories are created with mode `0700`. This location is outside the frontend's served directory and remains in the persistent data volume in Docker. `POST /api/admin/backups` requires an administrator session and the mutation header, returns `204` after completion, and exposes no filenames or paths. There is no backup listing or download API.
+
+The backend creates one automatic backup per night at **02:00 UTC** while running, checking once a minute. On startup it catches up the latest missed nightly backup, rather than generating archives for every missed day. Automatic archives older than seven days are removed after a successful backup; at most seven are retained. Stable nightly filenames avoid duplicates on restart. Failures are logged and retried after a minute. Manual archives are never removed by automatic retention. Shutdown waits for an in-progress nightly backup to finish. Importing/restoring through the application is not implemented.
 
 ## Checks
 
