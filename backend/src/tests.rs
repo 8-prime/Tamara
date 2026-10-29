@@ -4,6 +4,7 @@ use http_body_util::BodyExt;
 use tower::ServiceExt;
 
 mod homework;
+mod notes;
 
 struct Client {
     app: Router,

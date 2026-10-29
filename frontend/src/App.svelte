@@ -5,6 +5,7 @@
   import Icon from "./Icon.svelte";
   import Attendance from "./Attendance.svelte";
   import Homework from "./Homework.svelte";
+  import Notes from "./Notes.svelte";
   import ClassSettings from "./ClassSettings.svelte";
   import { readRoute, workspaceUrl, workAreas } from "./navigation.js";
   let feature = $state("learning");
@@ -51,6 +52,7 @@
     fieldEmail = $state(""),
     targetId = $state("");
   let loadVersion = 0;
+  let notesView = $state(null);
   const modes = [
     { id: "student", label: "Einzelkind", icon: "◉" },
     { id: "class", label: "Klassenübersicht", icon: "▦" },
@@ -187,7 +189,13 @@
   onMount(() => {
     const restore = async () => {
       if (!teacher) return;
-      if (saving || busy || loading || modal) {
+      if (
+        saving ||
+        busy ||
+        loading ||
+        modal ||
+        document.querySelector("dialog[open]")
+      ) {
         writeRoute(true);
         return;
       }
@@ -226,6 +234,34 @@
     error = "";
     notice = "";
     writeRoute();
+  }
+  async function quickNote(event) {
+    if (
+      event.key.toLowerCase() !== "n" ||
+      event.repeat ||
+      event.isComposing ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.altKey ||
+      event.shiftKey ||
+      !teacher ||
+      !classId ||
+      !students.length ||
+      saving ||
+      busy ||
+      loading ||
+      modal ||
+      document.querySelector("dialog[open]") ||
+      (event.target instanceof Element &&
+        event.target.closest(
+          'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]',
+        ))
+    )
+      return;
+    event.preventDefault();
+    navigate("notes");
+    await tick();
+    notesView?.openNew();
   }
   function homeworkFilters(tab, subject) {
     homeworkTab = tab;
@@ -577,6 +613,8 @@
   }
 </script>
 
+<svelte:window onkeydown={quickNote} />
+
 {#if booting}
   <div class="boot">
     <div class="brand-mark">t<span>✳</span></div>
@@ -731,7 +769,6 @@
             onclick={(e) => navigate(area.id, e)}
           >
             <span aria-hidden="true">{area.icon}</span>{area.label}
-            {#if area.id === "notes"}<span class="tiny-tag">BALD</span>{/if}
           </a>
         {/each}
       </nav>
@@ -827,21 +864,15 @@
               onshare={() => openModal("share")}
             />{/key}
         {:else if feature === "notes"}
-          <section class="page-heading">
-            <div>
-              <span class="eyebrow">DEINE KLASSE · JEDES KIND IM BLICK</span>
-              <h1>Notizen<span>.</span></h1>
-              <p>Ein fester Platz für schnelle Notizen zu einzelnen Kindern.</p>
-            </div>
-          </section>
-          <section class="workspace-card empty-panel">
-            <span class="eyebrow">IN VORBEREITUNG</span>
-            <h3>Beobachtungen schnell festhalten</h3>
-            <p>
-              Hier entsteht später die Möglichkeit, direkt für ein einzelnes
-              Kind eine Notiz hinzuzufügen.
-            </p>
-          </section>
+          {#key classId}<Notes
+              bind:this={notesView}
+              {classId}
+              {students}
+              bind:saving
+              disabled={busy || !!modal}
+              onerror={fail}
+              onstudents={() => navigate("students")}
+            />{/key}
         {:else if feature === "students"}
           <section class="page-heading with-actions">
             <div>
@@ -871,8 +902,10 @@
             >
             <div class="class-roster">
               {#each visibleStudents as s (s.id)}<div class="collaborator">
-                  <span class="avatar small-avatar">{initials(s.name)}</span
-                  ><strong>{s.name}</strong>
+                  <div class="pupil-identity">
+                    <span class="avatar small-avatar">{initials(s.name)}</span>
+                    <strong>{s.name}</strong>
+                  </div>
                   <div class="inline-actions">
                     <button
                       class="text-button"
@@ -1736,8 +1769,8 @@
         >
       {:else if modal === "delete"}<p>
           <strong>{students.find((s) => s.id === targetId)?.name}</strong> wird mit
-          allen Bewertungen, Anwesenheitseinträgen und Hausaufgaben-Abgaben dieser
-          Klasse gelöscht. Das kann nicht rückgängig gemacht werden.
+          allen Bewertungen, Notizen, Anwesenheitseinträgen und Hausaufgaben-Abgaben
+          dieser Klasse gelöscht. Das kann nicht rückgängig gemacht werden.
         </p>{/if}
       <div class="modal-actions">
         <button

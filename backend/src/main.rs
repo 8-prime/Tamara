@@ -2,6 +2,7 @@ mod archive;
 mod attendance;
 mod backup;
 mod homework;
+mod notes;
 mod pdf;
 
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
@@ -893,6 +894,14 @@ fn routes_with_frontend(s: AppState, dist: &std::path::Path) -> Router {
         .route("/classrooms", get(classes).post(create_class))
         .route("/criteria", get(criteria))
         .route("/classrooms/{class}/workspace", get(workspace))
+        .route(
+            "/classrooms/{class}/notes",
+            get(notes::list).post(notes::create),
+        )
+        .route(
+            "/classrooms/{class}/notes/{note}",
+            patch(notes::edit).delete(notes::remove),
+        )
         .route(
             "/classrooms/{class}/subjects",
             get(homework::subjects).post(homework::create_subject),

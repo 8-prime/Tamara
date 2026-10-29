@@ -45,7 +45,7 @@ The container listens on `0.0.0.0:3000`, uses `/data/tamara.sqlite`, and runs as
 
 Choose the class once in the sidebar's **Klasse** switcher, then use the single work-area menu: **Lernentwicklung**, **Anwesenheit**, **Hausaufgaben**, **Notizen**, **Kinder**, and **Klasseneinstellungen**. Switching classes keeps the selected work area. Class creation is beside the switcher; account and administrator tools remain separate from class tools.
 
-Work areas have URLs such as `/classes/{class-id}/homework?tab=open`. Refresh, direct links, and browser Back/Forward restore the class and work area. Homework's tab and subject filter are also reflected in its URL. The **Notizen** entry currently explains the planned quick per-pupil notes feature; note-taking will be implemented separately.
+Work areas have URLs such as `/classes/{class-id}/homework?tab=open`. Refresh, direct links, and browser Back/Forward restore the class and work area. Homework's tab and subject filter are also reflected in its URL.
 
 Manage the class roster under **Kinder**, and its subjects and sharing under **Klasseneinstellungen**. View modes, dates, grading periods, homework tabs, and subject filters remain within their respective pages.
 
@@ -62,7 +62,21 @@ Each **Erreicht** assessment stores an `achieved_on` observation date independen
 
 Statuses are **Erreicht** (`yes`), **Noch nicht** (`no`), and **Nicht beurteilt** (no assessment row). The latter two remain distinct in SQLite and both leave the printed form blank. The reference form provides no separate mark for a negative or unassessed result.
 
-The classroom creator is its owner. Under **Klasseneinstellungen → Freigaben verwalten**, they can share with another registered teacher by email or revoke access. Collaborators can edit students, periods, and assessments. Only the owner can change membership or delete students. Deleting a student requires confirmation and removes that student's assessments across every period in that classroom, attendance, and homework submission records. Renaming a student applies across all periods and features.
+The classroom creator is its owner. Under **Klasseneinstellungen → Freigaben verwalten**, they can share with another registered teacher by email or revoke access. Collaborators can edit students, periods, and assessments. Only the owner can change membership or delete students. Deleting a student requires confirmation and removes that student's assessments across every period in that classroom, notes, attendance, and homework submission records. Renaming a student applies across all periods and features.
+
+## Notes
+
+Open **Notizen** to keep a dated, plain-text list of observations for each child. Notes are shown newest first, with a search across note text and child names and a filter for an individual child. Notes can be edited or deleted; editing preserves the original creation date. **Aktualisieren** retrieves another teacher's changes.
+
+For quick capture from any class work area:
+
+1. Press **N** (outside a text field or another dialog), or choose **Neue Notiz** in the notes overview.
+2. The child search is focused immediately. Type a name; the first match is selected automatically. Use **↑/↓** to choose another match and **Enter** to open the note editor.
+3. Type the note, then press **Enter** to save and return to the overview, ready for **N** again. **Shift+Enter** inserts a line break. **Escape** cancels the dialog.
+
+Notes are stored in SQLite independently of grading periods. They follow the child's ID through renaming, distinguish duplicate names, and are removed when the child is deleted. Class owners and shared editors can manage all notes in their class; revoked access applies to subsequent requests. Dates include a creation timestamp displayed in the browser's local time.
+
+API: `GET/POST /api/classrooms/{class}/notes`, with `{"student_id":"…","content":"…"}` for creation; `PATCH/DELETE /api/classrooms/{class}/notes/{note}`, with `{"content":"…"}` for editing. Content is plain text, 1–10000 characters after trimming, with line breaks allowed.
 
 ## Attendance
 
