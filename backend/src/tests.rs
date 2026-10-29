@@ -1,9 +1,33 @@
-use super::*;
+use crate::{
+    api::{routes, routes_with_frontend},
+    auth::{Auth, hash},
+    db::{Database, backup},
+    pdf,
+    state::AppState,
+    util::{id, now},
+    validation::valid_date,
+};
 use axum::http::Request;
+use axum::{
+    Router,
+    body::Body,
+    http::{StatusCode, header},
+    response::Response,
+};
 use http_body_util::BodyExt;
+use serde_json::{Value, json};
+use sqlx::{
+    SqlitePool,
+    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use tower::ServiceExt;
 
 mod homework;
+mod layers;
 mod notes;
 
 struct Client {
@@ -83,16 +107,12 @@ async fn fixture() -> (Router, SqlitePool) {
     fixture_database(db).await
 }
 async fn fixture_database(db: SqlitePool) -> (Router, SqlitePool) {
-    sqlx::migrate!("./migrations").run(&db).await.unwrap();
-    for c in &pdf::catalog().criteria {
-        sqlx::query("INSERT INTO math_criteria(id,label,domain,section,level,page,x,y) VALUES(?,?,?,?,?,?,?,?)").bind(&c.id).bind(&c.label).bind(&c.domain).bind(&c.section).bind(&c.level).bind(c.page).bind(c.x).bind(c.y).execute(&db).await.unwrap();
-    }
+    Database::new(db.clone()).initialize().await.unwrap();
     let state = AppState {
-        db: db.clone(),
+        db: Database::new(db.clone()),
         backups: None,
         secure_cookie: true,
-        setup_hash: Some(hash("fixture-setup-token-at-least-24-characters")),
-        attempts: Arc::new(Mutex::new(HashMap::new())),
+        auth: Auth::new(Some(hash("fixture-setup-token-at-least-24-characters"))),
     };
     (routes(state), db)
 }
@@ -119,14 +139,13 @@ async fn only_admins_can_create_backups_and_archives_are_not_exposed() {
     std::fs::write(dist.join("index.html"), html).unwrap();
     let app = routes_with_frontend(
         AppState {
-            db: db.clone(),
+            db: Database::new(db.clone()),
             backups: Some(Arc::new(backup::Backups::new(
-                db.clone(),
+                Database::new(db.clone()),
                 &root.join("database.sqlite"),
             ))),
             secure_cookie: true,
-            setup_hash: Some(hash("fixture-setup-token-at-least-24-characters")),
-            attempts: Arc::new(Mutex::new(HashMap::new())),
+            auth: Auth::new(Some(hash("fixture-setup-token-at-least-24-characters"))),
         },
         &dist,
     );
@@ -657,11 +676,10 @@ async fn serves_frontend_and_api_from_the_same_router() {
     std::fs::write(dist.join("assets/app.css"), "body{color:green}").unwrap();
     let app = routes_with_frontend(
         AppState {
-            db,
+            db: Database::new(db),
             backups: None,
             secure_cookie: false,
-            setup_hash: Some(hash("fixture-setup-token-at-least-24-characters")),
-            attempts: Arc::new(Mutex::new(HashMap::new())),
+            auth: Auth::new(Some(hash("fixture-setup-token-at-least-24-characters"))),
         },
         &dist,
     );
@@ -1336,11 +1354,10 @@ async fn attendance_is_daily_shared_atomic_and_independent_of_periods() {
     assert_eq!(corrected[0]["updated_by"], editor_id);
     // Rebuilding the router reads the same persisted records.
     let state = AppState {
-        db: db.clone(),
+        db: Database::new(db.clone()),
         backups: None,
         secure_cookie: true,
-        setup_hash: None,
-        attempts: Arc::new(Mutex::new(HashMap::new())),
+        auth: Auth::new(None),
     };
     let mut reloaded = Client::new(routes(state));
     reloaded.cookie = owner.cookie.clone();

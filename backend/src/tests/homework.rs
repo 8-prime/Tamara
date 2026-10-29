@@ -454,7 +454,7 @@ async fn homework_pdfs_are_bounded_private_persistent_and_replaceable() {
         .status(),
         400
     );
-    let too_large = vec![b'x'; crate::homework::MAX_WORKSHEET + 1];
+    let too_large = vec![b'x'; 10 * 1024 * 1024 + 1];
     assert_eq!(
         upload(&owner, &upload_path, too_large, true).await.status(),
         413

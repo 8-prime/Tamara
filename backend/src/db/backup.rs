@@ -20,11 +20,11 @@ pub struct Backups {
 }
 
 impl Backups {
-    pub fn new(db: SqlitePool, database: &Path) -> Self {
+    pub fn new(db: super::Database, database: &Path) -> Self {
         let mut directory = database.as_os_str().to_owned();
         directory.push(".backups");
         Self {
-            db,
+            db: db.pool,
             directory: directory.into(),
             lock: Mutex::new(()),
         }
@@ -34,8 +34,8 @@ impl Backups {
         let _guard = self.lock.lock().await;
         let destination = self.directory.join("manual").join(format!(
             "manual-{}-{}.zip",
-            crate::now(),
-            crate::id()
+            crate::util::now(),
+            crate::util::id()
         ));
         self.create(&destination).await
     }
@@ -61,7 +61,10 @@ impl Backups {
     async fn create(&self, destination: &Path) -> Result<()> {
         private_directory(&self.directory)?;
         private_directory(destination.parent().ok_or("Missing backup directory")?)?;
-        let staging = Staging(self.directory.join(format!(".pending-{}", crate::id())));
+        let staging = Staging(
+            self.directory
+                .join(format!(".pending-{}", crate::util::id())),
+        );
         private_directory(&staging.0)?;
         let snapshot = staging.0.join("database.sqlite");
         // VACUUM INTO takes a consistent live SQLite snapshot, including
@@ -98,7 +101,7 @@ impl Backups {
                 if *shutdown.borrow() {
                     break;
                 }
-                if let Err(error) = self.automatic(crate::now()).await {
+                if let Err(error) = self.automatic(crate::util::now()).await {
                     tracing::error!(%error, "Automatic database backup failed; retrying in one minute");
                 }
                 tokio::select! {
@@ -111,7 +114,7 @@ impl Backups {
 }
 
 fn private_directory(path: &Path) -> io::Result<()> {
-    let mut builder = fs::DirBuilder::new();
+    let builder = &mut fs::DirBuilder::new();
     #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;
@@ -154,7 +157,7 @@ fn prune(directory: &Path, now: u64) -> Result<()> {
         };
         archives.push((timestamp, entry.path()));
     }
-    archives.sort_by(|a, b| b.0.cmp(&a.0));
+    archives.sort_by_key(|a| std::cmp::Reverse(a.0));
     for (index, (timestamp, path)) in archives.into_iter().enumerate() {
         if index >= 7 || timestamp <= now.saturating_sub(7 * DAY) {
             fs::remove_file(path)?;
@@ -169,7 +172,8 @@ mod tests {
     use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 
     async fn fixture() -> (Staging, Backups) {
-        let root = Staging(std::env::temp_dir().join(format!("tamara-backup-{}", crate::id())));
+        let root =
+            Staging(std::env::temp_dir().join(format!("tamara-backup-{}", crate::util::id())));
         private_directory(&root.0).unwrap();
         let database = root.0.join("teacher's database.sqlite");
         let db = SqlitePoolOptions::new()
@@ -191,7 +195,7 @@ mod tests {
             .execute(&db)
             .await
             .unwrap();
-        (root, Backups::new(db, &database))
+        (root, Backups::new(crate::db::Database::new(db), &database))
     }
 
     fn files(path: &Path) -> Vec<PathBuf> {
@@ -290,7 +294,7 @@ mod tests {
         // A reconstructed service represents a process restart: no in-memory
         // last-run marker is needed to avoid replacing the existing snapshot.
         let restarted = Backups::new(
-            backups.db.clone(),
+            crate::db::Database::new(backups.db.clone()),
             &root.0.join("teacher's database.sqlite"),
         );
         restarted.automatic(night + DAY - 1).await.unwrap();

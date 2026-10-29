@@ -1,4 +1,4 @@
-use crate::{Student, pdf};
+use crate::{models::Student, pdf};
 use std::{
     collections::HashMap,
     io::{Cursor, Write},

@@ -154,6 +154,8 @@ The backend creates one automatic backup per night at **02:00 UTC** while runnin
 
 ## Checks
 
+The backend's API, authentication, and database boundaries are described in [backend/README.md](backend/README.md).
+
 ```sh
 pnpm --dir frontend check
 pnpm --dir frontend build
