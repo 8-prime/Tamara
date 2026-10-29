@@ -41,6 +41,14 @@ docker logs tamara
 
 The container listens on `0.0.0.0:3000`, uses `/data/tamara.sqlite`, and runs as UID/GID `10001:10001`. When using a host directory instead of a named volume, make it writable by that UID. Configuration variables below can be supplied with `docker run --env`. `docker stop` sends SIGTERM and the server finishes in-flight requests before exiting.
 
+## Class workspaces and navigation
+
+Choose the class once in the sidebar's **Klasse** switcher, then use the single work-area menu: **Lernentwicklung**, **Anwesenheit**, **Hausaufgaben**, **Notizen**, **Kinder**, and **Klasseneinstellungen**. Switching classes keeps the selected work area. Class creation is beside the switcher; account and administrator tools remain separate from class tools.
+
+Work areas have URLs such as `/classes/{class-id}/homework?tab=open`. Refresh, direct links, and browser Back/Forward restore the class and work area. Homework's tab and subject filter are also reflected in its URL. The **Notizen** entry currently explains the planned quick per-pupil notes feature; note-taking will be implemented separately.
+
+Manage the class roster under **Kinder**, and its subjects and sharing under **Klasseneinstellungen**. View modes, dates, grading periods, homework tabs, and subject filters remain within their respective pages.
+
 ## Teaching workflow
 
 1. Create a classroom with a name and school year.
@@ -54,7 +62,7 @@ Each **Erreicht** assessment stores an `achieved_on` observation date independen
 
 Statuses are **Erreicht** (`yes`), **Noch nicht** (`no`), and **Nicht beurteilt** (no assessment row). The latter two remain distinct in SQLite and both leave the printed form blank. The reference form provides no separate mark for a negative or unassessed result.
 
-The classroom creator is its owner. Under **Gemeinsam arbeiten**, they can share with another registered teacher by email or revoke access. Collaborators can edit students, periods, and assessments. Only the owner can change membership or delete students. Deleting a student requires confirmation and removes that student's assessments across every period in that classroom. Renaming a student applies across all periods.
+The classroom creator is its owner. Under **Klasseneinstellungen → Freigaben verwalten**, they can share with another registered teacher by email or revoke access. Collaborators can edit students, periods, and assessments. Only the owner can change membership or delete students. Deleting a student requires confirmation and removes that student's assessments across every period in that classroom, attendance, and homework submission records. Renaming a student applies across all periods and features.
 
 ## Attendance
 
@@ -66,6 +74,28 @@ Select a class, then open **Anwesenheit**. Attendance is independent of mathemat
 Attendance stores one record per class, date, and student ID, including who last saved it and when. Unrecorded pupils are distinct from absent pupils. Duplicate names remain separate. Class owners and shared editors can read and edit attendance; access revocation applies immediately to subsequent requests. Renaming a pupil preserves records; deleting one removes their attendance across all dates along with their assessments. Concurrent edits use the last saved value; reload to retrieve another teacher's changes.
 
 The API supports `GET /api/classrooms/{class}/attendance/{YYYY-MM-DD}` and `PATCH` at the same path with `{"changes":[{"student_id":"…","status":"present"}]}`. Status is `present`, `absent`, or `null` to clear. Dates are validated calendar dates; invalid batches are rejected atomically.
+
+## Homework
+
+1. Add the class's subjects under **Klasseneinstellungen → Fächer**. Subjects can be renamed; a subject used by any homework cannot be removed, preserving the history.
+2. Open **Hausaufgaben** and choose **Hausaufgabe erstellen**. Select a subject, enter a title and due date, and optionally add a description and a PDF worksheet (up to 10 MB). Existing entries can be edited, and worksheets can be added, replaced, downloaded, or removed.
+3. **Offen** shows active homework across all subjects, ordered by due date. Filter to a single subject as needed. Past-due homework stays open and is labelled **Überfällig**.
+4. Open an assignment and check each pupil who has handed it in, or mark all remaining pupils at once. Changes save automatically. Duplicate names remain separate through pupil IDs.
+5. The final submission automatically closes the assignment and moves it into **Verlauf**. **Manuell abschließen** also closes an assignment with outstanding submissions; those remain visible in its history. **Wieder öffnen** reopens a manually closed assignment with outstanding submissions.
+
+The assigned pupil list is a snapshot of the roster when the homework is created. Adding pupils later does not change existing assignments. Renaming a pupil preserves the assignment; deleting one removes their submission and recalculates automatic completion for the remaining assigned pupils. Homework requires at least one pupil at creation. An assignment without remaining pupils can still be closed manually.
+
+History retains assignment details, due dates, worksheets, and per-pupil submission dates. Correcting a submission in an automatically closed assignment reopens it if a pupil is now outstanding. Manual closures remain closed when submissions are corrected.
+
+Class owners and shared editors can manage subjects, homework, worksheets, and submissions. Access checks also protect PDF downloads, and revoked sharing applies to subsequent requests. Submission batches and automatic closure are saved in one write transaction. Worksheets are private SQLite blobs rather than public files, so existing database backups include them.
+
+The homework API is independent of mathematics grading periods:
+
+- `GET/POST /api/classrooms/{class}/subjects`; `PATCH/DELETE /subjects/{subject}` under the same class.
+- `GET/POST /api/classrooms/{class}/homework`; `GET/PATCH /homework/{homework}` under the same class. Creation/editing accepts `subject_id`, `title`, `description`, and `due_date` (`YYYY-MM-DD`).
+- `PATCH …/homework/{homework}/submissions` accepts `{"changes":[{"student_id":"…","handed_in":true}]}`.
+- `PATCH …/homework/{homework}/closure` accepts `{"closed":true}` (manual close) or `false` (reopen when submissions remain outstanding).
+- `GET/PUT/DELETE …/homework/{homework}/worksheet`; upload raw PDF bytes with `PUT …/worksheet?name=worksheet.pdf`. The 10 MB body limit applies only to worksheet routes; other API requests retain their 1 MB limit.
 
 ## The mathematics form
 
@@ -117,7 +147,7 @@ cargo fmt --all --check
 cargo test
 ```
 
-The Rust suite exercises the real Axum router without requiring a network listener: invitation issuance/revocation/expiry and concurrent redemption, admin permissions, cookies and authentication, classroom isolation and sharing revocation, tri-state grading, atomic bulk updates, independent period copies, student management, and PDF/period ZIP export, including duplicate names, safe filenames, unassessed students, selected-period marks, and sharing revocation. It also verifies HTML and asset serving, frontend route fallback, HEAD requests, and separate 404 behavior for API routes and assets. The PDF tests check the template hash, mapping, page count, and the pages receiving overlays.
+The Rust suite exercises the real Axum router without requiring a network listener: invitation issuance/revocation/expiry and concurrent redemption, admin permissions, cookies and authentication, classroom isolation and sharing revocation, tri-state grading, atomic bulk updates, independent period copies, student management, and PDF/period ZIP export, including duplicate names, safe filenames, unassessed students, selected-period marks, and sharing revocation. Homework coverage includes subject validation, roster snapshots, duplicate names, atomic submission batches, concurrent final submissions, automatic/manual closure and reopening, historical corrections, pupil deletion, PDF upload limits/replacement/download/removal, and sharing revocation. It also verifies HTML and asset serving, frontend route fallback, HEAD requests, and separate 404 behavior for API routes and assets. The PDF tests check the template hash, mapping, page count, and the pages receiving overlays.
 
 The workflow test writes `output/pdf/qa-all-criteria.pdf`, a synthetic fully marked export for visual review. `scripts/smoke-test.py` additionally exercises a real HTTP server, restart persistence, and PDF validation when local sockets and Poppler's `pdfinfo` are available. It uses a disposable database and cleans up its server.
 

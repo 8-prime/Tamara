@@ -3,6 +3,8 @@ use axum::http::Request;
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
+mod homework;
+
 struct Client {
     app: Router,
     cookie: String,

@@ -4,7 +4,12 @@
   import Status from "./Status.svelte";
   import Icon from "./Icon.svelte";
   import Attendance from "./Attendance.svelte";
+  import Homework from "./Homework.svelte";
+  import ClassSettings from "./ClassSettings.svelte";
+  import { readRoute, workspaceUrl, workAreas } from "./navigation.js";
   let feature = $state("learning");
+  let homeworkTab = $state("open"),
+    homeworkSubject = $state("");
   let teacher = $state(null),
     booting = $state(true),
     authMode = $state("login"),
@@ -73,6 +78,7 @@
       : levels,
   );
   const currentClass = $derived(classrooms.find((c) => c.id === classId));
+  const currentArea = $derived(workAreas.find((area) => area.id === feature));
   const students = $derived(workspace?.students || []),
     periods = $derived(workspace?.periods || []);
   const currentPeriod = $derived(periods.find((p) => p.id === periodId)),
@@ -178,13 +184,69 @@
       booting = false;
     }
   });
-  async function initialize() {
+  onMount(() => {
+    const restore = async () => {
+      if (!teacher) return;
+      if (saving || busy || loading || modal) {
+        writeRoute(true);
+        return;
+      }
+      const route = readRoute();
+      feature = route.feature;
+      homeworkTab = route.tab;
+      homeworkSubject = route.subject;
+      const nextClass = classrooms.some((c) => c.id === route.classId)
+        ? route.classId
+        : classrooms[0]?.id || "";
+      if (nextClass !== classId) await chooseClass(nextClass, false);
+      writeRoute(true);
+    };
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  });
+  function writeRoute(replace = false) {
+    const url = workspaceUrl(classId, feature, homeworkTab, homeworkSubject);
+    if (window.location.pathname + window.location.search !== url)
+      window.history[replace ? "replaceState" : "pushState"]({}, "", url);
+  }
+  function navigate(area, event = null) {
+    if (event) {
+      if (
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      )
+        return;
+      event.preventDefault();
+    }
+    if (saving || busy || loading || !classId) return;
+    feature = area;
+    error = "";
+    notice = "";
+    writeRoute();
+  }
+  function homeworkFilters(tab, subject) {
+    homeworkTab = tab;
+    homeworkSubject = subject;
+    writeRoute(true);
+  }
+  async function initialize(preferCurrent = false) {
     const [c, cat] = await Promise.all([api("/classrooms"), api("/criteria")]);
     classrooms = c;
     catalog = cat.criteria;
     section ||= cat.criteria[0]?.section || "";
+    if (!preferCurrent) {
+      const route = readRoute();
+      classId = route.classId;
+      feature = route.feature;
+      homeworkTab = route.tab;
+      homeworkSubject = route.subject;
+    }
     if (!c.some((x) => x.id === classId)) classId = c[0]?.id || "";
     if (classId) await loadWorkspace();
+    writeRoute(true);
   }
   async function authenticate(e) {
     e.preventDefault();
@@ -226,6 +288,7 @@
       email = "";
       notice = "";
       error = "";
+      window.history.replaceState({}, "", "/");
     } catch (e) {
       fail(e);
     } finally {
@@ -253,14 +316,16 @@
       if (version === loadVersion) loading = false;
     }
   }
-  async function chooseClass(id) {
+  async function chooseClass(id, pushRoute = true) {
     if (saving || busy || loading) return;
     classId = id;
     periodId = "";
     workspace = null;
     studentId = "";
     rosterSearch = "";
+    if (pushRoute) homeworkSubject = "";
     await loadWorkspace("");
+    if (pushRoute) writeRoute();
   }
   async function choosePeriod(e) {
     periodId = e.currentTarget.value;
@@ -377,7 +442,7 @@
         periodId = "";
         studentId = "";
         workspace = null;
-        await initialize();
+        await initialize(true);
       } else if (modal === "students") {
         await api(`/classrooms/${classId}/students`, {
           method: "POST",
@@ -627,54 +692,48 @@
           class="brand-dot">.</span
         ></a
       >
-      <div class="sidebar-label">DEIN ARBEITSPLATZ</div>
-      <nav aria-label="Werkzeuge" class="feature-nav">
+      <div class="class-switcher">
+        <label class="sidebar-label" for="class-switcher">KLASSE</label>
+        <select
+          id="class-switcher"
+          value={classId}
+          disabled={saving || busy || loading || !classrooms.length}
+          onchange={(e) => chooseClass(e.currentTarget.value)}
+        >
+          {#if !classrooms.length}<option value="">Noch keine Klasse</option
+            >{/if}
+          {#each classrooms as c (c.id)}<option value={c.id}
+              >{c.name} · {c.school_year}{c.role === "editor"
+                ? " · Geteilt"
+                : ""}</option
+            >{/each}
+        </select>
         <button
-          class="nav-item"
-          class:active={feature === "learning"}
-          aria-current={feature === "learning" ? "page" : undefined}
-          disabled={saving || busy}
-          onclick={() => (feature = "learning")}
-        >
-          <span>▦</span>Lernentwicklung<span class="tiny-tag">MATHE</span>
-        </button>
-        <button
-          class="nav-item"
-          class:active={feature === "attendance"}
-          aria-current={feature === "attendance" ? "page" : undefined}
-          disabled={saving || busy}
-          onclick={() => (feature = "attendance")}
-        >
-          <span>✓</span>Anwesenheit
-        </button>
-      </nav>
-      <div class="class-nav-header">
-        <span class="sidebar-label">DEINE KLASSEN</span><button
-          class="icon-button"
-          title="Klasse anlegen"
-          aria-label="Klasse anlegen"
-          onclick={() => openModal("class")}
-          disabled={saving || loading}><Icon name="plus" /></button
-        >
-      </div>
-      <nav aria-label="Klassen">
-        {#each classrooms as c}<button
-            class="class-nav"
-            class:selected={classId === c.id}
-            onclick={() => chooseClass(c.id)}
-            disabled={saving || busy || loading}
-            ><span class="class-symbol">{c.name.slice(0, 2)}</span><span
-              ><strong>{c.name}</strong><small
-                >{c.student_count} Kinder · {c.school_year}</small
-              ></span
-            >{#if c.role === "editor"}<span title="Geteilte Klasse">↗</span
-              >{/if}</button
-          >{/each}<button
           class="new-class"
           onclick={() => openModal("class")}
-          disabled={saving || loading}
+          disabled={saving || busy || loading}
           ><Icon name="plus" /> Klasse anlegen</button
         >
+      </div>
+      <div class="sidebar-label">ARBEITSBEREICHE</div>
+      <nav
+        aria-label="Arbeitsbereiche der ausgewählten Klasse"
+        class="feature-nav"
+      >
+        {#each workAreas as area (area.id)}
+          <a
+            class="nav-item"
+            class:active={feature === area.id}
+            class:settings-nav={area.id === "settings"}
+            href={workspaceUrl(classId, area.id, homeworkTab, homeworkSubject)}
+            aria-current={feature === area.id ? "page" : undefined}
+            aria-disabled={saving || busy || loading || !classId}
+            onclick={(e) => navigate(area.id, e)}
+          >
+            <span aria-hidden="true">{area.icon}</span>{area.label}
+            {#if area.id === "notes"}<span class="tiny-tag">BALD</span>{/if}
+          </a>
+        {/each}
       </nav>
       {#if teacher.is_admin}
         <div class="sidebar-label">ADMINISTRATION</div>
@@ -710,18 +769,16 @@
     <main class="main-area">
       <header class="topbar">
         <div>
-          <span class="breadcrumb">Dein Arbeitsplatz</span><span
-            class="crumb-separator">/</span
-          ><strong>{currentClass?.name || "Meine Klassen"}</strong>
+          <span class="breadcrumb"
+            >{currentClass?.name || "Dein Arbeitsplatz"}</span
+          ><span class="crumb-separator">/</span><strong
+            >{currentArea?.label || "Meine Klassen"}</strong
+          >
         </div>
         <div class="topbar-right">
           <span class="year-pill"
             >◷ {currentClass?.school_year || "Schulalltag"}</span
-          >{#if currentClass}<button
-              class="secondary small"
-              onclick={() => openModal("share")}
-              disabled={saving || loading}>♧ Gemeinsam arbeiten</button
-            >{/if}
+          >
         </div>
       </header>
       <div class="page-content">
@@ -745,6 +802,110 @@
               ><Icon name="plus" /> Erste Klasse anlegen</button
             >
           </div>
+        {:else if loading && ["homework", "settings", "students", "notes"].includes(feature)}
+          <div class="empty-panel"><p>Klasse wird geladen …</p></div>
+        {:else if feature === "homework"}
+          {#key classId}<Homework
+              {classId}
+              {students}
+              tab={homeworkTab}
+              subject={homeworkSubject}
+              bind:saving
+              disabled={busy || !!modal}
+              onerror={fail}
+              onsettings={() => navigate("settings")}
+              onfilters={homeworkFilters}
+            />{/key}
+        {:else if feature === "settings"}
+          {#key classId}<ClassSettings
+              {classId}
+              classroom={currentClass}
+              teachers={workspace?.teachers || []}
+              bind:saving
+              disabled={busy || !!modal}
+              onerror={fail}
+              onshare={() => openModal("share")}
+            />{/key}
+        {:else if feature === "notes"}
+          <section class="page-heading">
+            <div>
+              <span class="eyebrow">DEINE KLASSE · JEDES KIND IM BLICK</span>
+              <h1>Notizen<span>.</span></h1>
+              <p>Ein fester Platz für schnelle Notizen zu einzelnen Kindern.</p>
+            </div>
+          </section>
+          <section class="workspace-card empty-panel">
+            <span class="eyebrow">IN VORBEREITUNG</span>
+            <h3>Beobachtungen schnell festhalten</h3>
+            <p>
+              Hier entsteht später die Möglichkeit, direkt für ein einzelnes
+              Kind eine Notiz hinzuzufügen.
+            </p>
+          </section>
+        {:else if feature === "students"}
+          <section class="page-heading with-actions">
+            <div>
+              <span class="eyebrow">DEINE KLASSE · ALLE KINDER</span>
+              <h1>Kinder<span>.</span></h1>
+              <p>
+                {students.length} Kinder in {currentClass?.name}. Namen und
+                Kinderliste zentral verwalten.
+              </p>
+            </div>
+            <button
+              class="primary"
+              disabled={saving || busy}
+              onclick={() => openModal("students")}
+              ><Icon name="plus" /> Kinder hinzufügen</button
+            >
+          </section>
+          <section
+            class="workspace-card settings-panel"
+            aria-label="Kinderliste"
+          >
+            <label class="pupil-search"
+              >Kind suchen<input
+                bind:value={rosterSearch}
+                placeholder="Name …"
+              /></label
+            >
+            <div class="class-roster">
+              {#each visibleStudents as s (s.id)}<div class="collaborator">
+                  <span class="avatar small-avatar">{initials(s.name)}</span
+                  ><strong>{s.name}</strong>
+                  <div class="inline-actions">
+                    <button
+                      class="text-button"
+                      disabled={saving || busy}
+                      onclick={async () => {
+                        targetId = s.id;
+                        await openModal("rename");
+                        fieldName = s.name;
+                      }}>Bearbeiten</button
+                    >{#if workspace?.role === "owner"}<button
+                        class="text-button danger-text"
+                        disabled={saving || busy}
+                        onclick={() => {
+                          targetId = s.id;
+                          openModal("delete");
+                        }}>Entfernen</button
+                      >{/if}
+                  </div>
+                </div>
+              {:else}<div class="empty-panel">
+                  <h3>
+                    {students.length
+                      ? "Kein passendes Kind"
+                      : "Wer lernt in deiner Klasse?"}
+                  </h3>
+                  <p>
+                    {students.length
+                      ? "Versuche einen anderen Namen."
+                      : "Füge Kinder einzeln oder als Namensliste hinzu."}
+                  </p>
+                </div>{/each}
+            </div>
+          </section>
         {:else if feature === "attendance"}
           <section class="page-heading">
             <div>
@@ -1409,8 +1570,8 @@
       {#if modal === "backup"}
         <p>
           Erstelle eine Sicherung der gesamten Datenbank. Das ZIP-Archiv wird
-          privat auf dem Server neben der Datenbank gespeichert.
-          Manuelle Sicherungen bleiben erhalten.
+          privat auf dem Server neben der Datenbank gespeichert. Manuelle
+          Sicherungen bleiben erhalten.
         </p>
         <p>
           Automatische Sicherungen werden jede Nacht um 02:00 UTC erstellt.
@@ -1517,8 +1678,9 @@
             : "Alle Kompetenzen beginnen mit „Nicht beurteilt“."}
         </div>
       {:else if modal === "share"}<p>
-          Freigegebene Lehrkräfte können Kinder, Zeiträume und Bewertungen
-          gemeinsam bearbeiten. Die Klassenleitung verwaltet den Zugriff.
+          Freigegebene Lehrkräfte können Kinder, Zeiträume, Bewertungen,
+          Anwesenheit, Fächer und Hausaufgaben gemeinsam bearbeiten. Die
+          Klassenleitung verwaltet den Zugriff.
         </p>
         <div class="collaborators">
           {#each workspace?.teachers || [] as t}<div class="collaborator">
@@ -1574,8 +1736,8 @@
         >
       {:else if modal === "delete"}<p>
           <strong>{students.find((s) => s.id === targetId)?.name}</strong> wird mit
-          allen Bewertungen und Anwesenheitseinträgen dieser Klasse gelöscht. Das
-          kann nicht rückgängig gemacht werden.
+          allen Bewertungen, Anwesenheitseinträgen und Hausaufgaben-Abgaben dieser
+          Klasse gelöscht. Das kann nicht rückgängig gemacht werden.
         </p>{/if}
       <div class="modal-actions">
         <button
@@ -1591,18 +1753,20 @@
             class="primary"
             disabled={busy}
             >{modal === "backup"
-              ? busy ? "Sicherung wird erstellt …" : "Sicherung erstellen"
+              ? busy
+                ? "Sicherung wird erstellt …"
+                : "Sicherung erstellen"
               : busy
                 ? "Wird gespeichert …"
                 : modal === "invites"
-                ? "Code erstellen"
-                : modal === "share"
-                  ? "Zugriff freigeben"
-                  : modal === "delete"
-                    ? "Kind endgültig entfernen"
-                    : modal === "period"
-                      ? "Zeitraum anlegen"
-                      : "Speichern"}</button
+                  ? "Code erstellen"
+                  : modal === "share"
+                    ? "Zugriff freigeben"
+                    : modal === "delete"
+                      ? "Kind endgültig entfernen"
+                      : modal === "period"
+                        ? "Zeitraum anlegen"
+                        : "Speichern"}</button
           >{/if}
       </div>
     </form>

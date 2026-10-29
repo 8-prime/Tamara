@@ -246,10 +246,11 @@ button.primary,
   background: #fff;
   border-right: 1px solid var(--line);
   padding: 30px 19px 0;
+  overflow-y: auto;
 }
 .sidebar .wordmark {
   padding: 0 15px;
-  margin-bottom: 45px;
+  margin-bottom: 28px;
 }
 .sidebar-label {
   font-size: 9px;
@@ -263,14 +264,40 @@ button.primary,
   align-items: center;
   gap: 10px;
   padding: 12px;
-  margin-top: 12px;
+  margin-top: 5px;
   border-radius: 7px;
   font-size: 12px;
   font-weight: 600;
+  text-decoration: none;
 }
 .nav-item.active {
   background: #edf3e8;
   color: #3a6544;
+}
+.nav-item[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: default;
+}
+.nav-item.settings-nav {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 7px 7px;
+}
+.class-switcher {
+  margin-bottom: 22px;
+}
+.class-switcher label {
+  display: block;
+  margin-bottom: 8px;
+}
+.class-switcher select {
+  width: 100%;
+  min-width: 0;
+  font-size: 12px;
+  background-color: #f5f6f1;
+}
+.feature-nav {
+  margin-bottom: 24px;
 }
 .nav-item > span:first-child {
   font-size: 19px;
@@ -2731,18 +2758,372 @@ textarea::placeholder {
   }
 }
 
+.settings-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 24px;
+  padding-bottom: 30px;
+}
+.page-heading.with-actions {
+  flex-wrap: wrap;
+  gap: 20px;
+}
+.settings-panel {
+  padding: 26px;
+}
+.settings-panel h2 {
+  margin: 0 0 12px;
+  font-size: 20px;
+}
+.settings-panel h3 {
+  margin-top: 28px;
+}
+.settings-panel > p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.inline-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.inline-actions input {
+  flex: 1;
+  min-width: 0;
+}
+.subject-form {
+  margin: 24px 0;
+}
+.subject-form > label {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.subject-form > .text-button {
+  margin-top: 10px;
+}
+.subject-list {
+  list-style: none;
+  margin: 20px 0;
+  padding: 0;
+}
+.subject-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+  padding: 15px 0;
+  font-size: 12px;
+}
+.subject-list small {
+  display: block;
+  color: var(--muted);
+  margin-top: 5px;
+}
+.workspace-notice {
+  margin: 0 0 20px;
+  font-size: 12px;
+}
+.class-roster .collaborator {
+  padding: 16px 0;
+}
+.class-roster .collaborator > .inline-actions {
+  margin-left: auto;
+}
+.pupil-search {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin: 18px 0;
+}
+.pupil-search input {
+  display: block;
+  width: 100%;
+  margin-top: 7px;
+}
+.homework-toolbar {
+  gap: 20px;
+  flex-wrap: wrap;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+.homework-subject-filter {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.homework-subject-filter select {
+  min-width: 160px;
+}
+.homework-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.homework-layout.has-detail {
+  grid-template-columns: minmax(240px, 0.8fr) minmax(0, 1.4fr);
+}
+.homework-list {
+  min-width: 0;
+  padding: 10px 20px;
+}
+.homework-list-item {
+  display: block;
+  width: 100%;
+  padding: 20px 14px;
+  margin: 8px 0;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  text-align: left;
+}
+.homework-list-item:hover,
+.homework-list-item.selected {
+  background: #f5f7f0;
+  border-color: #b8c9a9;
+}
+.homework-list-item > strong {
+  display: block;
+  font-size: 15px;
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+.homework-list-item small {
+  display: block;
+  color: var(--muted);
+  margin-top: 12px;
+  overflow-wrap: anywhere;
+}
+.homework-item-meta {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.homework-item-meta > span:first-child {
+  font-weight: 600;
+}
+.overdue {
+  color: #a44232;
+  font-weight: 600;
+}
+.homework-progress {
+  display: block;
+  margin-top: 16px;
+  border-radius: 4px;
+  height: 4px;
+  background: #e7ebdf;
+  overflow: hidden;
+}
+.homework-progress i {
+  display: block;
+  height: 100%;
+  background: #789867;
+}
+.homework-detail {
+  padding: 26px;
+  border-left: 1px solid var(--line);
+  min-width: 0;
+}
+.homework-detail-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.homework-detail h2 {
+  font-size: 24px;
+  margin: 16px 0;
+  overflow-wrap: anywhere;
+}
+.homework-detail-meta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--muted);
+}
+.homework-description {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.8;
+  margin: 22px 0;
+}
+.homework-detail-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 22px 0;
+}
+.worksheet-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding: 15px;
+  background: #f5f6f0;
+  border-radius: 7px;
+}
+.worksheet-row a {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.worksheet-row button {
+  flex-shrink: 0;
+}
+.homework-submission-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+  margin-top: 26px;
+}
+.homework-submission-heading h3 {
+  font-size: 15px;
+}
+.homework-submission-heading > span {
+  font-size: 11px;
+  color: var(--muted);
+}
+.homework-detail > .muted {
+  font-size: 11px;
+  line-height: 1.7;
+}
+.homework-bulk {
+  margin: 18px 0;
+}
+.homework-pupil {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.homework-pupil input {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  accent-color: #52723f;
+}
+.homework-pupil > strong {
+  overflow-wrap: anywhere;
+}
+.homework-pupil > span {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: right;
+}
+.homework-pupil.handed-in > span {
+  color: #52723f;
+}
+.homework-detail > .save-status {
+  margin-top: 18px;
+  max-width: none;
+}
+@media (max-width: 1100px) {
+  .settings-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .homework-layout.has-detail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .homework-layout.has-detail .homework-list {
+    display: flex;
+    overflow-x: auto;
+    gap: 12px;
+  }
+  .homework-layout.has-detail .homework-list-item {
+    flex: 0 0 240px;
+  }
+  .homework-detail {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+}
 @media (max-width: 760px) {
+  .class-switcher {
+    grid-column: 1/-1;
+    order: 1;
+    margin: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+  }
+  .class-switcher label {
+    grid-column: 1/-1;
+    margin: 0;
+  }
+  .class-switcher .new-class {
+    min-width: auto;
+  }
   .sidebar > .feature-nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
     order: 2;
+    margin: 0;
+    padding-bottom: 5px;
   }
   .feature-nav .nav-item {
     display: flex;
-    flex: 1;
+    flex: 0 0 auto;
     width: auto;
     margin: 0;
-    justify-content: center;
+    justify-content: flex-start;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    padding: 10px 7px;
   }
-  .feature-nav .nav-item + .nav-item {
-    margin-top: 0;
+  .feature-nav .nav-item.settings-nav {
+    border: 0;
+    border-radius: 7px;
+  }
+  .feature-nav .tiny-tag {
+    display: none;
+  }
+  .sidebar > .admin-nav {
+    order: 4;
+    margin: 0;
+  }
+  .homework-toolbar {
+    padding: 10px 18px;
+    gap: 8px;
+  }
+  .homework-subject-filter {
+    width: 100%;
+  }
+  .homework-subject-filter select {
+    flex: 1;
+  }
+  .homework-list {
+    padding: 8px 12px;
+  }
+  .homework-detail,
+  .settings-panel {
+    padding: 20px 18px;
+  }
+  .homework-detail h2 {
+    font-size: 21px;
+  }
+  .subject-list li,
+  .subject-form .inline-actions {
+    flex-wrap: wrap;
+  }
+  .subject-form .inline-actions input {
+    flex-basis: 100%;
+  }
+  .class-roster .collaborator {
+    flex-wrap: wrap;
   }
 }

@@ -1,6 +1,7 @@
 mod archive;
 mod attendance;
 mod backup;
+mod homework;
 mod pdf;
 
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
@@ -596,16 +597,19 @@ async fn remove_student(
 ) -> Result<StatusCode> {
     let t = auth(&s, &h).await?;
     owner(&s, &class, &t.id).await?;
+    let mut tx = s.db.begin_with("BEGIN IMMEDIATE").await?;
     if sqlx::query("DELETE FROM students WHERE id=? AND classroom_id=?")
         .bind(student)
-        .bind(class)
-        .execute(&s.db)
+        .bind(&class)
+        .execute(&mut *tx)
         .await?
         .rows_affected()
         != 1
     {
         return Err(missing());
     }
+    homework::reconcile(&mut tx, &class).await?;
+    tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
 #[derive(Deserialize)]
@@ -889,6 +893,37 @@ fn routes_with_frontend(s: AppState, dist: &std::path::Path) -> Router {
         .route("/classrooms", get(classes).post(create_class))
         .route("/criteria", get(criteria))
         .route("/classrooms/{class}/workspace", get(workspace))
+        .route(
+            "/classrooms/{class}/subjects",
+            get(homework::subjects).post(homework::create_subject),
+        )
+        .route(
+            "/classrooms/{class}/subjects/{subject}",
+            patch(homework::rename_subject).delete(homework::remove_subject),
+        )
+        .route(
+            "/classrooms/{class}/homework",
+            get(homework::list).post(homework::create),
+        )
+        .route(
+            "/classrooms/{class}/homework/{homework}",
+            get(homework::detail).patch(homework::edit),
+        )
+        .route(
+            "/classrooms/{class}/homework/{homework}/submissions",
+            patch(homework::save_submissions),
+        )
+        .route(
+            "/classrooms/{class}/homework/{homework}/closure",
+            patch(homework::set_closed),
+        )
+        .route(
+            "/classrooms/{class}/homework/{homework}/worksheet",
+            get(homework::worksheet)
+                .put(homework::upload_worksheet)
+                .delete(homework::remove_worksheet)
+                .layer(DefaultBodyLimit::max(homework::MAX_WORKSHEET)),
+        )
         .route(
             "/classrooms/{class}/attendance/{date}",
             get(attendance::list).patch(attendance::save),
