@@ -7,7 +7,7 @@ use crate::{
 impl Database {
     pub(crate) async fn notes(&self, class: &str) -> Result<Vec<Note>> {
         let notes = sqlx::query_as::<_, Note>(
-            "SELECT id, student_id, content, created_by, created_at, updated_by, updated_at
+            "SELECT id, student_id, content, created_by, created_at, updated_by, updated_at, lesson_id
              FROM student_notes
              WHERE classroom_id=?
              ORDER BY created_at DESC, rowid DESC",
@@ -24,14 +24,16 @@ impl Database {
         student: &str,
         content: &str,
         teacher: &str,
+        lesson: Option<&str>,
     ) -> Result<Note> {
         // The insert checks class membership of the child in the same statement.
         let note = sqlx::query_as::<_, Note>(
             "INSERT INTO student_notes(
-                 id, classroom_id, student_id, content, created_by, updated_by)
-             SELECT ?, ?, ?, ?, ?, ?
+                 id, classroom_id, student_id, content, created_by, updated_by, lesson_id)
+             SELECT ?, ?, ?, ?, ?, ?, ?
              WHERE EXISTS(SELECT 1 FROM students WHERE id=? AND classroom_id=?)
-             RETURNING id, student_id, content, created_by, created_at, updated_by, updated_at",
+             AND (? IS NULL OR EXISTS(SELECT 1 FROM lessons WHERE id=? AND classroom_id=?))
+             RETURNING id, student_id, content, created_by, created_at, updated_by, updated_at, lesson_id",
         )
         .bind(crate::util::id())
         .bind(class)
@@ -39,7 +41,11 @@ impl Database {
         .bind(content)
         .bind(teacher)
         .bind(teacher)
+        .bind(lesson)
         .bind(student)
+        .bind(class)
+        .bind(lesson)
+        .bind(lesson)
         .bind(class)
         .fetch_optional(&self.pool)
         .await?
@@ -58,7 +64,7 @@ impl Database {
             "UPDATE student_notes
              SET content=?, updated_by=?, updated_at=unixepoch()
              WHERE id=? AND classroom_id=?
-             RETURNING id, student_id, content, created_by, created_at, updated_by, updated_at",
+             RETURNING id, student_id, content, created_by, created_at, updated_by, updated_at, lesson_id",
         )
         .bind(content)
         .bind(teacher)

@@ -29,6 +29,7 @@ use tower::ServiceExt;
 mod homework;
 mod layers;
 mod notes;
+mod teaching;
 
 struct Client {
     app: Router,

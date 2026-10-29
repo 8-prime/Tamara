@@ -8,6 +8,7 @@ mod error;
 mod exports;
 mod homework;
 mod notes;
+mod teaching;
 
 use crate::{
     error::{Error, ErrorKind},
@@ -69,6 +70,34 @@ pub(crate) fn routes_with_frontend(s: AppState, dist: &std::path::Path) -> Route
             get(classrooms::classes).post(classrooms::create_class),
         )
         .route("/criteria", get(assessments::criteria))
+        .route(
+            "/lessons",
+            get(teaching::lessons).post(teaching::create_lesson),
+        )
+        .route(
+            "/lessons/{lesson}",
+            get(teaching::lesson).patch(teaching::edit_lesson),
+        )
+        .route(
+            "/lessons/{lesson}/performances",
+            get(teaching::performances).patch(teaching::save_performance),
+        )
+        .route("/timetable/{entry}/cancel", post(teaching::cancel_series))
+        .route("/tasks", get(teaching::all_tasks))
+        .route(
+            "/classrooms/{class}/tasks",
+            get(teaching::tasks).post(teaching::create_task),
+        )
+        .route(
+            "/classrooms/{class}/tasks/{task}",
+            get(teaching::task)
+                .patch(teaching::edit_task)
+                .delete(teaching::delete_task),
+        )
+        .route(
+            "/classrooms/{class}/tasks/{task}/completion",
+            patch(teaching::complete_task),
+        )
         .route("/classrooms/{class}/workspace", get(classrooms::workspace))
         .route(
             "/classrooms/{class}/notes",

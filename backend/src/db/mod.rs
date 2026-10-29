@@ -7,6 +7,7 @@ mod classrooms;
 pub(crate) mod exports;
 mod homework;
 mod notes;
+mod teaching;
 
 use crate::pdf;
 use sqlx::{

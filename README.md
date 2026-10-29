@@ -43,11 +43,33 @@ The container listens on `0.0.0.0:3000`, uses `/data/tamara.sqlite`, and runs as
 
 ## Class workspaces and navigation
 
-Choose the class once in the sidebar's **Klasse** switcher, then use the single work-area menu: **Lernentwicklung**, **Anwesenheit**, **Hausaufgaben**, **Notizen**, **Kinder**, and **Klasseneinstellungen**. Switching classes keeps the selected work area. Class creation is beside the switcher; account and administrator tools remain separate from class tools.
+The **Dashboard** opens with the current or next scheduled lesson, today's timetable, four fixed quick actions, important tasks and a class overview. **Kalender** provides the week/day timetable and the selected lesson's planning details. Both use the teacher's own schedule. The sidebar's class switcher selects the class for **Klassen**, **Notizen**, **Leistungen**, **Aufgaben**, **Materialien**, and settings. **Klassen** also contains attendance; **Leistungen** separates lesson performances from the existing **Lernentwicklung**; **Aufgaben** separates class tasks from homework. Existing class work-area URLs remain valid.
 
 Work areas have URLs such as `/classes/{class-id}/homework?tab=open`. Refresh, direct links, and browser Back/Forward restore the class and work area. Homework's tab and subject filter are also reflected in its URL.
 
 Manage the class roster under **Kinder**, and its subjects and sharing under **Klasseneinstellungen**. View modes, dates, grading periods, homework tabs, and subject filters remain within their respective pages.
+
+## Timetable and lesson workflow
+
+Add a lesson under **Kalender → Stunde hinzufügen**. Class, subject, date, start and end are required. A missing class or subject can be created inline. Subjects remain class-specific. Room, topic and learning goals are optional. A weekly repeat creates dated lessons through the selected end date, up to one year. Overlaps in the teacher's schedule are rejected atomically, including overlaps later in a series.
+
+Select a timetable entry to edit that individual lesson, including its date, times, room, topic, goals and cancellation status. Other occurrences and existing records stay intact. The schedule owner can cancel a series starting on a future day; lessons with notes or performances are preserved. Shared class editors can view and edit the class's dated lessons through **Leistungen**, but another teacher's timetable does not appear on their personal dashboard.
+
+The dashboard's suggested action uses local lesson times: prepare before the lesson, attendance during the first 20 minutes while entries are missing, notes afterward, and performance capture in the last five minutes (which takes priority for short lessons). Completed attendance advances the suggestion early. The four quick actions stay fixed and available. Daily attendance still stores one entry per class, date and pupil; starting from a lesson supplies that lesson's date. Notes retain their keyboard workflow and can optionally reference a lesson.
+
+**Leistung erfassen** records a rating from 1–4 and an optional observation of up to 500 characters for each pupil in a specific dated lesson. Keys 1–4 select a rating; Enter saves and advances; Shift+Enter inserts a line break. Skipped pupils remain unrecorded, and saved ratings can be reviewed or corrected. These records do not modify competency assessments or their assessment periods.
+
+## Class tasks and materials
+
+Under **Aufgaben → Klassenaufgaben**, create a task to complete once or for each pupil. A due date, description and lesson association are optional. Per-pupil tasks snapshot the current roster; later additions do not change the assigned list. Each pupil's completion can be corrected independently. Editing preserves the task's completion mode and lesson association; completed tasks remain in history. Lesson-linked tasks also appear in the lesson preparation checklist. Homework retains its existing separate workflow.
+
+**Materialien** lists the class's existing homework PDF worksheets, with search, private downloads and copyable links. The selected lesson narrows its materials to that subject. Links require classroom access; copying a link does not change sharing permissions.
+
+## Teaching data migration
+
+Migration **0007_teaching.sql** is additive: it creates timetable, dated lesson, performance and task tables, and adds a nullable `lesson_id` to pupil notes. It does not delete or rewrite existing notes, attendance, homework, worksheets, rosters or competency assessments. Existing notes have no lesson association. New users start with an empty timetable; existing class subjects are reused. The legacy APIs and class URLs are preserved.
+
+As with other SQLx migrations, an older application binary may refuse to open a database containing a newer migration. Use a pre-upgrade database backup when rolling the application back; there is no automatic down migration. The migration is covered by a test that upgrades the old schema with existing notes, attendance, submissions and worksheet bytes. See [the entity relationship diagram](docs/teaching-data-model.md).
 
 ## Teaching workflow
 

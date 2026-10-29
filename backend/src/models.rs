@@ -1,6 +1,7 @@
 //! Shared records and commands. Repositories never depend on API request types.
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+pub(crate) mod teaching;
 
 #[derive(Serialize, FromRow)]
 pub(crate) struct Teacher {
@@ -122,6 +123,7 @@ pub(crate) struct Note {
     pub(crate) created_at: i64,
     pub(crate) updated_by: String,
     pub(crate) updated_at: i64,
+    pub(crate) lesson_id: Option<String>,
 }
 
 #[derive(Serialize, FromRow)]

@@ -67,8 +67,14 @@ impl Database {
     pub(crate) async fn remove_subject(&self, class: &str, subject: &str) -> Result<()> {
         let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
         let used: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM homework WHERE subject_id=? AND classroom_id=?",
+            "SELECT (SELECT COUNT(*) FROM homework WHERE subject_id=? AND classroom_id=?)
+             + (SELECT COUNT(*) FROM lessons WHERE subject_id=? AND classroom_id=?)
+             + (SELECT COUNT(*) FROM timetable_entries WHERE subject_id=? AND classroom_id=?)",
         )
+        .bind(subject)
+        .bind(class)
+        .bind(subject)
+        .bind(class)
         .bind(subject)
         .bind(class)
         .fetch_one(&mut *tx)
@@ -76,7 +82,7 @@ impl Database {
         if used > 0 {
             return Err(Error(
                 ErrorKind::Conflict,
-                "Dieses Fach wird für Hausaufgaben verwendet und kann nicht entfernt werden."
+                "Dieses Fach wird für Hausaufgaben oder Unterricht verwendet und kann nicht entfernt werden."
                     .into(),
             ));
         }

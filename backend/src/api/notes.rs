@@ -28,6 +28,7 @@ fn content(value: &str) -> Result<String> {
 pub(crate) struct NewNote {
     pub(crate) student_id: String,
     pub(crate) content: String,
+    pub(crate) lesson_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -54,8 +55,14 @@ pub(super) async fn create(
     s.auth.member(&s.db, &class, &t.id).await?;
     let content = content(&input.content)?;
     let note =
-        s.db.create_note(&class, &input.student_id, &content, &t.id)
-            .await?;
+        s.db.create_note(
+            &class,
+            &input.student_id,
+            &content,
+            &t.id,
+            input.lesson_id.as_deref(),
+        )
+        .await?;
     Ok(Json(note))
 }
 

@@ -7,8 +7,53 @@
   import Homework from "./Homework.svelte";
   import Notes from "./Notes.svelte";
   import ClassSettings from "./ClassSettings.svelte";
+  import Teaching from "./Teaching.svelte";
+  import Tasks from "./Tasks.svelte";
   import { readRoute, workspaceUrl, workAreas } from "./navigation.js";
-  let feature = $state("learning");
+  let feature = $state("dashboard");
+  let routeLesson = $state(""),
+    routeDate = $state(""),
+    noteContext = $state(null),
+    teachingView = $state(null);
+  let globalSearch = $state("");
+  const searchResults = $derived(
+    globalSearch.trim()
+      ? [
+          ...classrooms
+            .filter((c) =>
+              c.name
+                .toLocaleLowerCase("de")
+                .includes(globalSearch.toLocaleLowerCase("de")),
+            )
+            .map((c) => ({
+              label: `Klasse ${c.name}`,
+              area: "students",
+              classId: c.id,
+            })),
+          ...students
+            .filter((s) =>
+              s.name
+                .toLocaleLowerCase("de")
+                .includes(globalSearch.toLocaleLowerCase("de")),
+            )
+            .map((s) => ({
+              label: s.name,
+              area: "students",
+              classId,
+              pupilName: s.name,
+            })),
+          ...workAreas
+            .filter(
+              (a) =>
+                !a.hidden &&
+                a.label
+                  .toLocaleLowerCase("de")
+                  .includes(globalSearch.toLocaleLowerCase("de")),
+            )
+            .map((a) => ({ label: a.label, area: a.id, classId })),
+        ].slice(0, 8)
+      : [],
+  );
   let homeworkTab = $state("open"),
     homeworkSubject = $state("");
   let teacher = $state(null),
@@ -201,19 +246,37 @@
       }
       const route = readRoute();
       feature = route.feature;
+      routeLesson = route.lesson;
+      routeDate = route.date;
+      noteContext = null;
       homeworkTab = route.tab;
       homeworkSubject = route.subject;
       const nextClass = classrooms.some((c) => c.id === route.classId)
         ? route.classId
         : classrooms[0]?.id || "";
       if (nextClass !== classId) await chooseClass(nextClass, false);
+      if (routeLesson && feature === "notes") {
+        try {
+          const lesson = await api(`/lessons/${routeLesson}`);
+          if (lesson.classroom_id === classId) noteContext = lesson;
+        } catch (e) {
+          fail(e);
+        }
+      }
       writeRoute(true);
     };
     window.addEventListener("popstate", restore);
     return () => window.removeEventListener("popstate", restore);
   });
   function writeRoute(replace = false) {
-    const url = workspaceUrl(classId, feature, homeworkTab, homeworkSubject);
+    const url = workspaceUrl(
+      classId,
+      feature,
+      homeworkTab,
+      homeworkSubject,
+      routeLesson,
+      routeDate,
+    );
     if (window.location.pathname + window.location.search !== url)
       window.history[replace ? "replaceState" : "pushState"]({}, "", url);
   }
@@ -229,11 +292,56 @@
         return;
       event.preventDefault();
     }
-    if (saving || busy || loading || !classId) return;
+    if (
+      saving ||
+      busy ||
+      loading ||
+      (!classId && !["dashboard", "calendar"].includes(area))
+    )
+      return;
+    if (feature !== area) {
+      routeLesson = "";
+      routeDate = "";
+      noteContext = null;
+    }
     feature = area;
     error = "";
     notice = "";
     writeRoute();
+  }
+  async function refreshClasses() {
+    classrooms = await api("/classrooms");
+    if (!classId && classrooms.length) {
+      classId = classrooms[0].id;
+      await loadWorkspace("");
+    }
+  }
+  async function navigateLesson(area, lesson = null) {
+    if (lesson?.classroom_id && lesson.classroom_id !== classId)
+      await chooseClass(lesson.classroom_id, false);
+    navigate(area);
+    routeLesson = lesson?.id || "";
+    routeDate = lesson?.lesson_date || "";
+    writeRoute(true);
+  }
+  function updateLessonRoute(id, date) {
+    routeLesson = id;
+    routeDate = date;
+    writeRoute(true);
+  }
+  async function lessonAction(kind, lesson) {
+    await navigateLesson(kind === "note" ? "notes" : "attendance", lesson);
+    noteContext = lesson?.id ? lesson : null;
+    if (kind === "note") {
+      await tick();
+      notesView?.openNew();
+    }
+  }
+  async function searchNavigate(result) {
+    globalSearch = "";
+    if (result.classId !== classId) await chooseClass(result.classId, false);
+    navigate(result.area);
+    if (result.area === "students") rosterSearch = result.pupilName || "";
   }
   async function quickNote(event) {
     if (
@@ -246,7 +354,6 @@
       event.shiftKey ||
       !teacher ||
       !classId ||
-      !students.length ||
       saving ||
       busy ||
       loading ||
@@ -259,6 +366,12 @@
     )
       return;
     event.preventDefault();
+    const context = teachingView?.noteLesson();
+    if (context) {
+      await lessonAction("note", context);
+      return;
+    }
+    if (!students.length) return;
     navigate("notes");
     await tick();
     notesView?.openNew();
@@ -277,11 +390,21 @@
       const route = readRoute();
       classId = route.classId;
       feature = route.feature;
+      routeLesson = route.lesson;
+      routeDate = route.date;
       homeworkTab = route.tab;
       homeworkSubject = route.subject;
     }
     if (!c.some((x) => x.id === classId)) classId = c[0]?.id || "";
     if (classId) await loadWorkspace();
+    if (routeLesson && feature === "notes") {
+      try {
+        const lesson = await api(`/lessons/${routeLesson}`);
+        if (lesson.classroom_id === classId) noteContext = lesson;
+      } catch (e) {
+        fail(e);
+      }
+    }
     writeRoute(true);
   }
   async function authenticate(e) {
@@ -359,7 +482,12 @@
     workspace = null;
     studentId = "";
     rosterSearch = "";
-    if (pushRoute) homeworkSubject = "";
+    if (pushRoute) {
+      homeworkSubject = "";
+      routeLesson = "";
+      routeDate = "";
+      noteContext = null;
+    }
     await loadWorkspace("");
     if (pushRoute) writeRoute();
   }
@@ -624,9 +752,7 @@
   <main class="auth-layout">
     <section class="auth-story">
       <a class="wordmark" href="/"
-        ><span class="brand-mark">t<span>✳</span></span>tamara<span
-          class="brand-dot">.</span
-        ></a
+        ><span class="brand-mark"><Icon name="leaf" size={29} /></span>Tamara</a
       >
       <div>
         <span class="eyebrow light">MEHR RAUM FÜRS UNTERRICHTEN</span>
@@ -725,13 +851,11 @@
 {:else}
   <div class="app-shell">
     <aside class="sidebar">
-      <a class="wordmark" href="/"
-        ><span class="brand-mark">t<span>✳</span></span>tamara<span
-          class="brand-dot">.</span
-        ></a
+      <a class="wordmark" href="/" onclick={(e) => navigate("dashboard", e)}
+        ><span class="brand-mark"><Icon name="leaf" size={29} /></span>Tamara</a
       >
       <div class="class-switcher">
-        <label class="sidebar-label" for="class-switcher">KLASSE</label>
+        <label class="sidebar-label" for="class-switcher">Deine Klasse</label>
         <select
           id="class-switcher"
           value={classId}
@@ -753,22 +877,27 @@
           ><Icon name="plus" /> Klasse anlegen</button
         >
       </div>
-      <div class="sidebar-label">ARBEITSBEREICHE</div>
       <nav
         aria-label="Arbeitsbereiche der ausgewählten Klasse"
         class="feature-nav"
       >
-        {#each workAreas as area (area.id)}
+        {#each workAreas.filter((a) => !a.hidden) as area (area.id)}
           <a
             class="nav-item"
-            class:active={feature === area.id}
+            class:active={feature === area.id ||
+              (area.id === "performances" && feature === "learning") ||
+              (area.id === "students" && feature === "attendance") ||
+              (area.id === "tasks" && feature === "homework")}
             class:settings-nav={area.id === "settings"}
             href={workspaceUrl(classId, area.id, homeworkTab, homeworkSubject)}
             aria-current={feature === area.id ? "page" : undefined}
-            aria-disabled={saving || busy || loading || !classId}
+            aria-disabled={saving ||
+              busy ||
+              loading ||
+              (!classId && !area.global)}
             onclick={(e) => navigate(area.id, e)}
           >
-            <span aria-hidden="true">{area.icon}</span>{area.label}
+            <Icon name={area.icon} size={21} />{area.label}
           </a>
         {/each}
       </nav>
@@ -787,38 +916,89 @@
           ><Icon name="backup" /> Datenbank sichern</button
         >
       {/if}
-      <div class="sidebar-note">
-        <span>✳</span>
-        <p>Kleine Schritte.<br /><strong>Große Entwicklung.</strong></p>
-      </div>
-      <div class="profile">
-        <div class="avatar">{initials(teacher.name)}</div>
-        <div><strong>{teacher.name}</strong><small>Lehrkraft</small></div>
-        <button
-          class="icon-button"
-          title="Abmelden"
-          aria-label="Abmelden"
-          onclick={signout}
-          disabled={saving || busy}>↪</button
-        >
+      <div class="sidebar-footer">
+        <Icon name="leaf" /><span>Mehr Zeit für deine Klasse.</span>
       </div>
     </aside>
     <main class="main-area">
       <header class="topbar">
-        <div>
-          <span class="breadcrumb"
-            >{currentClass?.name || "Dein Arbeitsplatz"}</span
-          ><span class="crumb-separator">/</span><strong
-            >{currentArea?.label || "Meine Klassen"}</strong
-          >
+        <div class="global-search">
+          <Icon name="search" size={20} /><input
+            type="search"
+            bind:value={globalSearch}
+            placeholder="Klasse, Kind oder Bereich suchen …"
+            aria-label="Klasse, Kind oder Bereich suchen"
+          />
+          {#if globalSearch}<div class="search-results">
+              {#each searchResults as result}<button
+                  onclick={() => searchNavigate(result)}
+                  >{result.label}<Icon name="chevron" /></button
+                >{:else}<p>Keine passenden Einträge.</p>{/each}
+            </div>{/if}
         </div>
         <div class="topbar-right">
-          <span class="year-pill"
-            >◷ {currentClass?.school_year || "Schulalltag"}</span
+          <div class="profile-avatar">{initials(teacher.name)}</div>
+          <div class="topbar-profile">
+            <strong>{teacher.name}</strong><small
+              >{currentClass?.school_year || "Lehrkraft"}</small
+            >
+          </div>
+          <button
+            class="icon-button"
+            aria-label="Abmelden"
+            title="Abmelden"
+            onclick={signout}
+            disabled={saving || busy}>↪</button
           >
         </div>
       </header>
       <div class="page-content">
+        {#if feature !== "dashboard"}<div class="workspace-breadcrumb">
+            {["calendar"].includes(feature)
+              ? "Mein Unterricht"
+              : currentClass?.name || "Dein Arbeitsplatz"}<span>›</span
+            >{currentArea?.label}
+          </div>{/if}
+        {#if ["performances", "learning"].includes(feature)}<nav
+            class="workspace-tabs"
+            aria-label="Leistungen"
+          >
+            <button
+              class:active={feature === "performances"}
+              onclick={() => navigate("performances")}
+              >Unterrichtsleistungen</button
+            ><button
+              class:active={feature === "learning"}
+              onclick={() => navigate("learning")}>Lernentwicklung</button
+            >
+          </nav>
+        {:else if ["tasks", "homework"].includes(feature)}<nav
+            class="workspace-tabs"
+            aria-label="Aufgaben"
+          >
+            <button
+              class:active={feature === "tasks"}
+              onclick={() => navigate("tasks")}>Klassenaufgaben</button
+            ><button
+              class:active={feature === "homework"}
+              onclick={() => navigate("homework")}>Hausaufgaben</button
+            >
+          </nav>
+        {:else if ["students", "attendance", "settings"].includes(feature)}<nav
+            class="workspace-tabs"
+            aria-label="Klasse"
+          >
+            <button
+              class:active={feature === "students"}
+              onclick={() => navigate("students")}>Kinder</button
+            ><button
+              class:active={feature === "attendance"}
+              onclick={() => navigate("attendance")}>Anwesenheit</button
+            ><button
+              class:active={feature === "settings"}
+              onclick={() => navigate("settings")}>Klasseneinstellungen</button
+            >
+          </nav>{/if}
         {#if error && !modal}<div class="alert" role="alert">
             {error}<button
               class="text-button"
@@ -826,7 +1006,23 @@
               aria-label="Fehlermeldung schließen">×</button
             >
           </div>{/if}
-        {#if !classrooms.length}<div class="welcome-empty">
+        {#if ["dashboard", "calendar", "performances", "materials"].includes(feature)}
+          <Teaching
+            bind:this={teachingView}
+            view={feature}
+            {teacher}
+            {classrooms}
+            {classId}
+            lessonId={routeLesson}
+            {routeDate}
+            bind:saving
+            onaction={lessonAction}
+            onnavigate={navigateLesson}
+            onroute={updateLessonRoute}
+            onclasses={refreshClasses}
+            onerror={fail}
+          />
+        {:else if !classrooms.length}<div class="welcome-empty">
             <span class="large-flower">✳</span><span class="eyebrow"
               >DEIN ERSTER SCHRITT</span
             >
@@ -841,6 +1037,13 @@
           </div>
         {:else if loading && ["homework", "settings", "students", "notes"].includes(feature)}
           <div class="empty-panel"><p>Klasse wird geladen …</p></div>
+        {:else if feature === "tasks"}
+          {#key classId}<Tasks
+              {classId}
+              lessonId={routeLesson}
+              bind:saving
+              onerror={fail}
+            />{/key}
         {:else if feature === "homework"}
           {#key classId}<Homework
               {classId}
@@ -868,6 +1071,8 @@
               bind:this={notesView}
               {classId}
               {students}
+              context={noteContext}
+              className={currentClass?.name || ""}
               bind:saving
               disabled={busy || !!modal}
               onerror={fail}
@@ -962,10 +1167,11 @@
               >
             </div>
           {:else}
-            {#key classId}
+            {#key classId + routeDate}
               <Attendance
                 {classId}
                 {students}
+                initialDate={routeDate || today()}
                 className={currentClass?.name || ""}
                 bind:saving
                 disabled={busy || !!modal}

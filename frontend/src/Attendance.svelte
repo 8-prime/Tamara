@@ -1,5 +1,5 @@
 <script>
-  import { onDestroy } from "svelte";
+  import { onDestroy, untrack } from "svelte";
   import { api } from "./api.js";
 
   let {
@@ -9,10 +9,11 @@
     saving = $bindable(false),
     disabled = false,
     onerror,
+    initialDate = "",
   } = $props();
   let mode = $state("roll"),
-    date = $state(today()),
-    month = $state(today().slice(0, 7));
+    date = $state(untrack(() => initialDate || today())),
+    month = $state(untrack(() => (initialDate || today()).slice(0, 7)));
   let records = $state({}),
     loading = $state(true),
     loadedDate = $state("");

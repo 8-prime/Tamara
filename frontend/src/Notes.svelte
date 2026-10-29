@@ -2,6 +2,7 @@
   import { onMount, tick } from "svelte";
   import { api } from "./api.js";
   import Icon from "./Icon.svelte";
+  import { initials } from "./teaching.js";
 
   let {
     classId,
@@ -10,6 +11,8 @@
     disabled = false,
     onerror,
     onstudents,
+    context = null,
+    className = "",
   } = $props();
   let entries = $state([]),
     loading = $state(true),
@@ -166,7 +169,11 @@
     try {
       const result = await api(editing ? `${base}/${editing.id}` : base, {
         method: editing ? "PATCH" : "POST",
-        body: JSON.stringify({ student_id: studentId, content }),
+        body: JSON.stringify({
+          student_id: studentId,
+          content,
+          ...(!editing && context ? { lesson_id: context.id } : {}),
+        }),
       });
       entries = editing
         ? entries.map((note) => (note.id === result.id ? result : note))
@@ -282,6 +289,9 @@
       {#each visible as note (note.id)}
         <li class="note-card">
           <div class="note-heading">
+            <span class="note-avatar"
+              >{initials(pupilNames.get(note.student_id))}</span
+            >
             <div>
               <strong>{pupilNames.get(note.student_id)}</strong>
               {#if students.find((s) => s.id === note.student_id)}
@@ -294,6 +304,9 @@
               <time datetime={new Date(note.created_at * 1000).toISOString()}
                 >{dateLabel(note.created_at)}</time
               >
+              {#if note.lesson_id}<small class="muted"
+                  >Mit Unterrichtsstunde verknüpft</small
+                >{/if}
             </div>
             <button
               class="text-button"
@@ -330,11 +343,9 @@
       }}
     >
       <div class="modal-top">
-        <span class="eyebrow"
-          >{step === "select"
-            ? "1 · KIND AUSWÄHLEN"
-            : "2 · NOTIZ FESTHALTEN"}</span
-        >
+        <h2 id="note-dialog-title">
+          {editing ? "Notiz bearbeiten" : "Neue Notiz"}
+        </h2>
         <button
           type="button"
           class="icon-button"
@@ -343,9 +354,24 @@
           disabled={saving}>×</button
         >
       </div>
-      <h2 id="note-dialog-title">
-        {step === "select" ? "Für welches Kind?" : pupil?.name}
-      </h2>
+      {#if !editing}<div class="note-steps">
+          <span class:active={step === "select"}><b>1</b> Kind auswählen</span
+          ><i></i><span class:active={step === "write"}
+            ><b>2</b> Notiz festhalten</span
+          >
+        </div>{/if}
+      <div class="note-context">
+        <Icon name="book" size={28} />
+        <div>
+          <strong
+            >{context
+              ? `Aktueller Kontext: ${context.subject_name} · Klasse ${context.class_name}`
+              : `Klasse ${className}`}</strong
+          >
+          <p>Es werden nur Kinder aus dieser Klasse angezeigt.</p>
+        </div>
+      </div>
+      {#if step === "write"}<h3>{pupil?.name}</h3>{/if}
       {#if formError}<div class="alert" role="alert">{formError}</div>{/if}
       {#if step === "select"}
         <label for="note-name">Name suchen</label>
@@ -388,6 +414,7 @@
                 class:active={selectedIndex === index}
                 onclick={() => chooseStudent(student)}
               >
+                <span class="note-avatar">{initials(student.name)}</span>
                 <span
                   >{student.name}
                   {#if duplicateLabel(student)}<small
@@ -403,6 +430,16 @@
         {#if !matches.length}<p class="muted" role="status">
             Kein passendes Kind gefunden.
           </p>{/if}
+        <div class="modal-actions">
+          <button type="button" class="secondary" onclick={closeEditor}
+            >Abbrechen</button
+          ><button
+            type="button"
+            class="primary"
+            onclick={() => chooseStudent(matches[selectedIndex])}
+            disabled={!matches.length}>Weiter <Icon name="arrow" /></button
+          >
+        </div>
       {:else}
         <p class="note-date">
           {editing
@@ -423,7 +460,8 @@
           maxlength="10000"
           placeholder="Was möchtest du festhalten?"
           aria-describedby="note-write-help"
-          disabled={saving || deleting}></textarea>
+          disabled={saving || deleting}
+        ></textarea>
         <p id="note-write-help" class="note-help">
           <kbd>Enter</kbd> speichern & schließen · <kbd>Shift</kbd> +
           <kbd>Enter</kbd> neue Zeile
