@@ -95,3 +95,15 @@ test("calendar day arithmetic follows local days across daylight saving changes"
   assert.equal(monday("2026-10-25"), "2026-10-19");
   assert.equal(addDays("2026-10-25", 1), "2026-10-26");
 });
+
+test("completed performance suggestions open the results overview", () => {
+  const complete = { ...lesson, performance_count: 24 };
+  assert.equal(
+    lessonAction(complete, new Date("2026-10-29T10:32")).kind,
+    "review",
+  );
+  assert.equal(
+    lessonAction(complete, new Date("2026-10-29T10:36")).kind,
+    "review",
+  );
+});

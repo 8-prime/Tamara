@@ -905,112 +905,6 @@ label {
 .tab-row {
   margin-bottom: 17px;
 }
-.timetable-panel {
-  padding: 12px 9px;
-}
-.week-caption {
-  padding: 0 9px 12px;
-  font-size: 12px;
-  color: var(--muted);
-}
-.timetable-scroll {
-  overflow-x: auto;
-}
-.timetable-grid {
-  border-collapse: separate;
-  border-spacing: 4px;
-  table-layout: fixed;
-  width: 100%;
-  min-width: 500px;
-}
-.timetable-grid th {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--muted);
-  padding: 4px 0;
-}
-.timetable-grid th:first-child {
-  width: 40px;
-  text-align: left;
-}
-.timetable-grid thead th button {
-  display: block;
-  text-align: center;
-  width: 100%;
-  background: transparent;
-  color: var(--ink);
-  line-height: 1.6;
-  padding: 0 0 8px;
-}
-.timetable-grid th small {
-  display: block;
-}
-.timetable-grid th.today {
-  color: var(--green);
-}
-.timetable-grid th.today button {
-  color: var(--green);
-  font-weight: 700;
-}
-.timetable-grid td {
-  vertical-align: top;
-  border-top: 1px solid #eef3f7;
-  padding-top: 3px;
-}
-.timetable-lesson {
-  width: 100%;
-  min-height: 84px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
-  padding: 10px 8px;
-  border: 2px solid transparent;
-  border-radius: 7px;
-  background: #e6f4e9;
-  color: #1a4850;
-  text-align: left;
-  font-size: 11px;
-  overflow-wrap: anywhere;
-}
-.timetable-lesson strong {
-  font-weight: 550;
-}
-.timetable-lesson small {
-  font-size: 10px;
-  color: #49647c;
-}
-.timetable-lesson.blue {
-  background: #e3f0ff;
-  color: #193e74;
-}
-.timetable-lesson.rose {
-  background: #fce7ef;
-  color: #73304b;
-}
-.timetable-lesson.purple {
-  background: #eee8fb;
-  color: #543d7a;
-}
-.timetable-lesson.orange {
-  background: #fff0da;
-  color: #76522c;
-}
-.timetable-lesson.selected {
-  border-color: #2c7757;
-}
-.empty-slot {
-  width: 100%;
-  min-height: 84px;
-  border: 1px dashed #e2ecf3;
-  border-radius: 6px;
-  color: #9aabba;
-  background: transparent;
-}
-.empty-slot:hover {
-  background: #f2f8f4;
-  color: var(--green);
-}
 .day-panel {
   margin-top: 17px;
 }
@@ -1681,9 +1575,6 @@ dialog::backdrop {
   .planning-layout .workspace-card {
     padding: 16px;
   }
-  .planning-layout .timetable-panel {
-    padding: 10px 5px;
-  }
   .calendar-toolbar {
     gap: 8px;
   }
@@ -1769,9 +1660,6 @@ dialog::backdrop {
   }
   .lesson-detail-column {
     grid-template-columns: 1fr;
-  }
-  .planning-layout .timetable-panel {
-    padding: 15px;
   }
   .topbar-profile small {
     display: none;
@@ -1977,12 +1865,6 @@ dialog::backdrop {
   .calendar-toolbar .secondary {
     min-height: 36px;
   }
-  .planning-layout .timetable-panel {
-    padding: 10px 4px;
-  }
-  .timetable-grid {
-    min-width: 530px;
-  }
   .planning-layout .day-panel {
     padding: 14px;
   }
@@ -2175,4 +2057,71 @@ dialog::backdrop {
     order: 3;
     margin-top: 0;
   }
+}
+/* The timetable is the primary editing surface; details open after selection. */
+.planning-layout.calendar-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+.calendar-detail-empty {
+  display: none;
+}
+.calendar-layout .time-calendar-panel {
+  padding: 0;
+}
+.calendar-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  font-size: 13px;
+}
+.calendar-panel-heading > strong {
+  font-weight: 600;
+}
+.calendar-panel-heading > span {
+  font-size: 12px;
+}
+.calendar-selected-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 0 16px 14px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: #edf6f0;
+  font-size: 12px;
+}
+.calendar-selected-toolbar > div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.calendar-selected-toolbar .text-button {
+  font-size: 12px;
+}
+.calendar-selected-toolbar .icon-button {
+  width: 28px;
+  height: 28px;
+}
+@media (min-width: 1450px) {
+  .planning-layout.calendar-layout.lesson-selected {
+    grid-template-columns: minmax(0, 1fr) 340px;
+  }
+}
+@media (max-width: 700px) {
+  .calendar-selected-toolbar {
+    margin: 0 12px 12px;
+    padding: 9px;
+  }
+  .calendar-panel-heading {
+    padding: 14px 12px;
+    font-size: 12px;
+  }
+}
+.lesson-tools > .secondary {
+  margin-bottom: 12px;
 }

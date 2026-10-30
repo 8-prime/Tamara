@@ -366,6 +366,10 @@
     )
       return;
     event.preventDefault();
+    if (currentArea?.global) {
+      teachingView?.openQuickNote();
+      return;
+    }
     const context = teachingView?.noteLesson();
     if (context) {
       await lessonAction("note", context);
@@ -855,21 +859,26 @@
         ><span class="brand-mark"><Icon name="leaf" size={29} /></span>Tamara</a
       >
       <div class="class-switcher">
-        <label class="sidebar-label" for="class-switcher">Deine Klasse</label>
-        <select
-          id="class-switcher"
-          value={classId}
-          disabled={saving || busy || loading || !classrooms.length}
-          onchange={(e) => chooseClass(e.currentTarget.value)}
-        >
-          {#if !classrooms.length}<option value="">Noch keine Klasse</option
-            >{/if}
-          {#each classrooms as c (c.id)}<option value={c.id}
-              >{c.name} · {c.school_year}{c.role === "editor"
-                ? " · Geteilt"
-                : ""}</option
-            >{/each}
-        </select>
+        {#if !currentArea?.global}
+          <label class="sidebar-label" for="class-switcher"
+            >Klasse für diesen Bereich</label
+          >
+          <select
+            id="class-switcher"
+            aria-label="Klasse für diesen Bereich"
+            value={classId}
+            disabled={saving || busy || loading || !classrooms.length}
+            onchange={(e) => chooseClass(e.currentTarget.value)}
+          >
+            {#if !classrooms.length}<option value="">Noch keine Klasse</option
+              >{/if}
+            {#each classrooms as c (c.id)}<option value={c.id}
+                >{c.name} · {c.school_year}{c.role === "editor"
+                  ? " · Geteilt"
+                  : ""}</option
+              >{/each}
+          </select>
+        {/if}
         <button
           class="new-class"
           onclick={() => openModal("class")}
@@ -877,10 +886,7 @@
           ><Icon name="plus" /> Klasse anlegen</button
         >
       </div>
-      <nav
-        aria-label="Arbeitsbereiche der ausgewählten Klasse"
-        class="feature-nav"
-      >
+      <nav aria-label="Arbeitsbereiche" class="feature-nav">
         {#each workAreas.filter((a) => !a.hidden) as area (area.id)}
           <a
             class="nav-item"
@@ -940,7 +946,9 @@
           <div class="profile-avatar">{initials(teacher.name)}</div>
           <div class="topbar-profile">
             <strong>{teacher.name}</strong><small
-              >{currentClass?.school_year || "Lehrkraft"}</small
+              >{currentArea?.global
+                ? "Lehrkraft"
+                : currentClass?.school_year || "Lehrkraft"}</small
             >
           </div>
           <button

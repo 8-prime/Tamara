@@ -50,10 +50,20 @@ export function lessonAction(lesson, now = new Date()) {
   if (now < start)
     return { kind: "prepare", label: "Stunde vorbereiten", icon: "book" };
   if (now >= end)
-    return { kind: "performance", label: "Leistungen ansehen", icon: "chart" };
+    return {
+      kind: lesson.performance_count > 0 ? "review" : "performance",
+      label:
+        lesson.performance_count > 0
+          ? "Leistungen ansehen"
+          : "Leistung erfassen",
+      icon: "chart",
+    };
   if ((end - now) / 60000 <= 5)
     return {
-      kind: "performance",
+      kind:
+        lesson.performance_count >= lesson.pupil_count && lesson.pupil_count
+          ? "review"
+          : "performance",
       label:
         lesson.performance_count >= lesson.pupil_count && lesson.pupil_count
           ? "Leistungen ansehen"

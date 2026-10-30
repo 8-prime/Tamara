@@ -8,6 +8,8 @@
     saving = $bindable(false),
     onclose,
     onerror = () => {},
+    studentId = "",
+    onreview = null,
   } = $props();
   let dialog = $state(null),
     students = $state([]),
@@ -29,7 +31,8 @@
       students = workspace.students;
       records = Object.fromEntries(list.map((r) => [r.student_id, r]));
       const next = students.findIndex((s) => !records[s.id]);
-      choose(next < 0 ? students.length : next);
+      const requested = students.findIndex((s) => s.id === studentId);
+      choose(requested >= 0 ? requested : next < 0 ? students.length : next);
     } catch (e) {
       error = e.message;
       onerror(e);
@@ -88,6 +91,11 @@
         body: JSON.stringify(record),
       });
       records = { ...records, [pupil.id]: record };
+      if (studentId) {
+        saving = false;
+        close();
+        return;
+      }
       choose(index + 1);
     } catch (e) {
       error = e.message;
@@ -110,7 +118,12 @@
 >
   <div class="modal-content">
     <div class="performance-top">
-      <span>{pupil ? `${index + 1} von ${students.length}` : "Leistungen"}</span
+      <span
+        >{studentId
+          ? "Leistung bearbeiten"
+          : pupil
+            ? `${index + 1} von ${students.length}`
+            : "Leistungen"}</span
       ><progress
         value={count}
         max={students.length || 1}
@@ -122,6 +135,17 @@
         aria-label="Dialog schließen"><Icon name="close" /></button
       >
     </div>
+    {#if count > 0 && onreview}<button
+        class="text-button"
+        onclick={() => {
+          if (!saving) {
+            dialog.close();
+            onreview();
+          }
+        }}
+        disabled={saving}
+        ><Icon name="chart" /> Erfasste Leistungen ansehen</button
+      >{/if}
     {#if error}<div class="alert" role="alert">{error}</div>{/if}
     {#if loading}<div class="empty-panel"><p>Kinder werden geladen …</p></div>
     {:else if pupil}
@@ -159,23 +183,30 @@
       >
       <p class="character-count">{observation.length} / 500</p>
       <div class="performance-footer">
-        <button
-          class="secondary"
-          onclick={() => choose(index - 1)}
-          disabled={saving || index === 0}>← Vorheriges</button
-        ><button
-          class="text-button"
-          onclick={() => choose(index + 1)}
-          disabled={saving}>Überspringen</button
-        ><button class="primary" onclick={save} disabled={saving || !rating}
-          >{saving ? "Speichert …" : "Speichern & nächstes"}<Icon
-            name="arrow"
-          /></button
+        {#if !studentId}<button
+            class="secondary"
+            onclick={() => choose(index - 1)}
+            disabled={saving || index === 0}>← Vorheriges</button
+          ><button
+            class="text-button"
+            onclick={() => choose(index + 1)}
+            disabled={saving}>Überspringen</button
+          >{/if}<button
+          class="primary"
+          onclick={save}
+          disabled={saving || !rating}
+          >{saving
+            ? "Speichert …"
+            : studentId
+              ? "Änderung speichern"
+              : "Speichern & nächstes"}<Icon name="arrow" /></button
         >
       </div>
       <p class="note-help muted">
-        Enter speichert und öffnet das nächste Kind. Shift+Enter für eine neue
-        Zeile.
+        {studentId
+          ? "Enter speichert die Änderung."
+          : "Enter speichert und öffnet das nächste Kind."} Shift+Enter für eine
+        neue Zeile.
       </p>
     {:else}
       <div class="empty-panel">

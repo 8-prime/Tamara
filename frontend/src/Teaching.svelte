@@ -3,7 +3,11 @@
   import { api } from "./api.js";
   import Icon from "./Icon.svelte";
   import LessonEditor from "./LessonEditor.svelte";
+  import LessonCalendar from "./LessonCalendar.svelte";
+  import { timeMinutes, timeString } from "./calendar.js";
   import Performance from "./Performance.svelte";
+  import PerformanceOverview from "./PerformanceOverview.svelte";
+  import ClassActionPicker from "./ClassActionPicker.svelte";
   import Tasks from "./Tasks.svelte";
   import {
     dateKey,
@@ -44,8 +48,11 @@
     editing = $state(null),
     performance = $state(null),
     materialSearch = $state("");
+  let performanceStudent = $state("");
+  let quickAction = $state("");
   let newStart = $state("08:00"),
-    newEnd = $state("08:45");
+    newEnd = $state("08:45"),
+    newClassId = $state("");
   let materialLoading = $state(false),
     materialError = $state("");
   const today = $derived(dateKey(now));
@@ -59,7 +66,9 @@
     lessons.find((l) => l.id === selectedId) ||
       (view === "dashboard"
         ? current
-        : lessons.find((l) => l.lesson_date === date)),
+        : view === "calendar"
+          ? null
+          : lessons.find((l) => l.lesson_date === date)),
   );
   const startOfWeek = $derived(monday(date));
   const weekLessons = $derived(
@@ -72,17 +81,16 @@
   const weekDays = $derived(
     Array.from(
       {
-        length: weekLessons.some(
-          (l) => new Date(l.lesson_date + "T12:00:00").getDay() % 6 === 0,
-        )
-          ? 7
-          : 5,
+        length:
+          new Date(date + "T12:00:00").getDay() % 6 === 0 ||
+          weekLessons.some(
+            (l) => new Date(l.lesson_date + "T12:00:00").getDay() % 6 === 0,
+          )
+            ? 7
+            : 5,
       },
       (_, i) => addDays(startOfWeek, i),
     ),
-  );
-  const times = $derived(
-    [...new Set(weekLessons.map((l) => l.starts_at))].sort(),
   );
   const dayLessons = $derived(lessons.filter((l) => l.lesson_date === date));
   const openTasks = $derived(tasks.filter((t) => !taskDone(t)));
@@ -94,7 +102,11 @@
         : selected,
   );
   const contextClass = $derived(
-    classrooms.find((c) => c.id === (context?.classroom_id || classId)),
+    classrooms.find(
+      (c) =>
+        c.id ===
+        (context?.classroom_id || (view === "dashboard" ? "" : classId)),
+    ),
   );
   const activeHomework = $derived(homework.filter((h) => h.status === "open"));
   const assigned = $derived(
@@ -121,6 +133,9 @@
   export function noteLesson() {
     return context || null;
   }
+  export function openQuickNote() {
+    act("note", context);
+  }
   $effect(() => {
     if (routeDate) date = routeDate;
     selectedId = lessonId;
@@ -131,7 +146,7 @@
     untrack(() => reload(area, id));
   });
   $effect(() => {
-    const id = context?.classroom_id || classId;
+    const id = contextClass?.id;
     let active = true;
     materialLoading = true;
     materialError = "";
@@ -179,13 +194,14 @@
     error = "";
     try {
       const from =
-        area === "dashboard"
-          ? dateKey()
-          : [addDays(dateKey(), -365), startOfWeek].sort()[0];
-      const until =
-        area === "dashboard"
-          ? "9999-12-31"
-          : [addDays(dateKey(), 366), addDays(startOfWeek, 6)].sort().at(-1);
+        area === "performances"
+          ? "0001-01-01"
+          : area === "dashboard"
+            ? dateKey()
+            : [addDays(dateKey(), -365), startOfWeek].sort()[0];
+      const until = ["dashboard", "performances"].includes(area)
+        ? "9999-12-31"
+        : [addDays(dateKey(), 366), addDays(startOfWeek, 6)].sort().at(-1);
       const query = area === "performances" && id ? `&classroom_id=${id}` : "";
       const [list, allTasks] = await Promise.all([
         api(`/lessons?from=${from}&until=${until}${query}`),
@@ -222,17 +238,71 @@
     onroute("", date);
     await reload();
   }
-  function newLesson(day = date, time = "08:00") {
+  function newLesson(
+    day = date,
+    time = null,
+    end = null,
+    preferredClass = classId,
+  ) {
     if (saving) return;
+    if (!time) {
+      const previous = lessons
+        .filter((l) => l.lesson_date === day && l.status === "scheduled")
+        .map((l) => l.ends_at)
+        .sort()
+        .at(-1);
+      time = previous && previous < "23:45" ? previous : "08:00";
+    }
     date = day;
+    newClassId = preferredClass;
+    selectedId = "";
+    onroute("", day);
     newStart = time;
     const minutes = Math.min(
       1439,
       Number(time.slice(0, 2)) * 60 + Number(time.slice(3)) + 45,
     );
-    newEnd = `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+    newEnd = end || timeString(minutes);
     editing = null;
     editor = true;
+  }
+  async function reschedule(lesson, day, start, end) {
+    if (saving) return;
+    error = "";
+    notice = "";
+    saving = true;
+    lessons = lessons.map((l) =>
+      l.id === lesson.id
+        ? { ...l, lesson_date: day, starts_at: start, ends_at: end }
+        : l,
+    );
+    try {
+      const latest = await api(`/lessons/${lesson.id}`);
+      await api(`/lessons/${lesson.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          lesson_date: day,
+          starts_at: start,
+          ends_at: end,
+          room: latest.room,
+          topic: latest.topic,
+          learning_goals: latest.learning_goals,
+          status: latest.status,
+        }),
+      });
+      const updated = await api(`/lessons/${lesson.id}`);
+      lessons = lessons.map((l) => (l.id === lesson.id ? updated : l));
+      if (selectedId === lesson.id) {
+        date = day;
+        onroute(lesson.id, day);
+      }
+      notice = `${lesson.subject_name}: ${dateLabel(day, { weekday: "long", day: "numeric", month: "short" })}, ${start}–${end}. Nur diese Stunde wurde geändert.`;
+    } catch (e) {
+      lessons = lessons.map((l) => (l.id === lesson.id ? lesson : l));
+      fail(e);
+    } finally {
+      saving = false;
+    }
   }
   function act(kind, lesson = current) {
     if (kind === "create") {
@@ -240,12 +310,11 @@
       return;
     }
     if (!lesson) {
-      if (classId && kind === "materials") {
-        onnavigate("materials", { classroom_id: classId });
-        return;
-      }
-      if (classId && ["attendance", "note"].includes(kind)) {
-        onaction(kind, { classroom_id: classId, lesson_date: today });
+      if (
+        classrooms.length &&
+        ["attendance", "note", "materials"].includes(kind)
+      ) {
+        quickAction = kind;
         return;
       }
       notice = "Wähle zuerst eine Stunde im Kalender aus.";
@@ -257,7 +326,12 @@
       return;
     }
     if (kind === "performance") {
+      performanceStudent = "";
       performance = lesson;
+      return;
+    }
+    if (kind === "review") {
+      reviewLesson(lesson);
       return;
     }
     if (kind === "materials") {
@@ -265,6 +339,13 @@
       return;
     }
     onaction(kind, lesson);
+  }
+  function chooseActionClass(classroom) {
+    const kind = quickAction;
+    quickAction = "";
+    const lesson = { classroom_id: classroom.id, lesson_date: today };
+    if (kind === "materials") onnavigate("materials", lesson);
+    else onaction(kind, lesson);
   }
   async function saved(id, day) {
     date = day;
@@ -274,7 +355,15 @@
   }
   async function closePerformance() {
     performance = null;
+    performanceStudent = "";
     await reload();
+  }
+  async function reviewLesson(lesson) {
+    const refresh = !!performance;
+    performance = null;
+    performanceStudent = "";
+    if (refresh) await reload();
+    onnavigate("performances", lesson);
   }
   async function cancelSeries(lesson) {
     const from =
@@ -532,57 +621,63 @@
             {contextClass ? `Klasse ${contextClass.name}` : "Deine Klassen"} – Überblick
           </h2>
         </div>
-        <div class="class-overview">
-          <div>
-            <h3>Hausaufgaben</h3>
-            <div
-              class="homework-ring"
-              style={`--completion:${homeworkPercent}%`}
-            >
-              <span
-                ><strong>{assigned ? homeworkPercent + " %" : "–"}</strong
-                ><small>abgegeben</small></span
+        {#if context}<div class="class-overview">
+            <div>
+              <h3>Hausaufgaben</h3>
+              <div
+                class="homework-ring"
+                style={`--completion:${homeworkPercent}%`}
+              >
+                <span
+                  ><strong>{assigned ? homeworkPercent + " %" : "–"}</strong
+                  ><small>abgegeben</small></span
+                >
+              </div>
+              <p class="muted">
+                {handed} von {assigned} Abgaben · offene Hausaufgaben
+              </p>
+              <button
+                class="text-button"
+                onclick={() => onnavigate("homework", context)}
+                >Details ansehen <Icon name="arrow" /></button
               >
             </div>
-            <p class="muted">
-              {handed} von {assigned} Abgaben · offene Hausaufgaben
-            </p>
-            <button
-              class="text-button"
-              onclick={() => onnavigate("homework", context)}
-              >Details ansehen <Icon name="arrow" /></button
-            >
-          </div>
-          <div>
-            <h3>Anwesenheit</h3>
-            <div class="attendance-total">
-              {context?.present_count ?? "–"}<span>
-                / {context?.pupil_count ??
-                  contextClass?.student_count ??
-                  "–"}</span
+            <div>
+              <h3>Anwesenheit</h3>
+              <div class="attendance-total">
+                {context?.present_count ?? "–"}<span>
+                  / {context?.pupil_count ??
+                    contextClass?.student_count ??
+                    "–"}</span
+                >
+              </div>
+              <p class="muted">
+                {context
+                  ? dateLabel(context.lesson_date, {
+                      day: "numeric",
+                      month: "long",
+                    })
+                  : "Wähle eine Klasse"}
+              </p>
+              <p>
+                {context
+                  ? `${context.attendance_count} Kinder erfasst`
+                  : `${classrooms.length} Klassen in deinem Arbeitsbereich`}
+              </p>
+              <button
+                class="text-button"
+                onclick={() =>
+                  context ? act("attendance", context) : onnavigate("students")}
+                >Anwesenheit öffnen <Icon name="arrow" /></button
               >
             </div>
-            <p class="muted">
-              {context
-                ? dateLabel(context.lesson_date, {
-                    day: "numeric",
-                    month: "long",
-                  })
-                : "Wähle eine Klasse"}
-            </p>
-            <p>
-              {context
-                ? `${context.attendance_count} Kinder erfasst`
-                : `${classrooms.length} Klassen in deinem Arbeitsbereich`}
-            </p>
-            <button
-              class="text-button"
-              onclick={() =>
-                context ? act("attendance", context) : onnavigate("students")}
-              >Anwesenheit öffnen <Icon name="arrow" /></button
+          </div>{:else}<div class="empty-panel small-empty">
+            <h3>Keine aktuelle oder nächste Stunde</h3>
+            <p>Die Klassenübersicht folgt automatisch deinem Stundenplan.</p>
+            <button class="secondary" onclick={() => onnavigate("calendar")}
+              >Kalender öffnen</button
             >
-          </div>
-        </div>
+          </div>{/if}
       </section>
     </div>
   </div>
@@ -611,6 +706,21 @@
       Materiallinks können nur Lehrkräfte mit Zugriff auf die Klasse öffnen.
     </p>
   </section>
+{:else if view === "performances"}
+  {#key classId}<PerformanceOverview
+      {classId}
+      className={classrooms.find((c) => c.id === classId)?.name || ""}
+      {lessons}
+      {loading}
+      {saving}
+      {lessonId}
+      onselect={selectLesson}
+      oncapture={(lesson, studentId = "") => {
+        performanceStudent = studentId;
+        performance = lesson;
+      }}
+      {onerror}
+    />{/key}
 {:else}
   <section class="page-heading with-actions">
     <div>
@@ -629,7 +739,11 @@
       ><Icon name="plus" /> Stunde hinzufügen</button
     >
   </section>
-  <div class="planning-layout">
+  <div
+    class="planning-layout"
+    class:calendar-layout={view === "calendar"}
+    class:lesson-selected={!!selected}
+  >
     <div class="planning-main">
       <div class="calendar-toolbar">
         <div class="date-navigation">
@@ -676,94 +790,83 @@
       {#if loading}<p class="muted" role="status">
           Stunden werden geladen …
         </p>{/if}
-      {#if view === "calendar" && calendarMode === "week"}
-        <section class="workspace-card timetable-panel">
-          <div class="week-caption">
-            {dateLabel(startOfWeek, { day: "numeric", month: "short" })} – {dateLabel(
-              addDays(startOfWeek, weekDays.length - 1),
-            )}
+      {#if view === "calendar"}
+        <section
+          class="workspace-card time-calendar-panel"
+          aria-label="Unterrichtskalender"
+        >
+          <div class="calendar-panel-heading">
+            <strong
+              >{calendarMode === "week"
+                ? `${dateLabel(startOfWeek, { day: "numeric", month: "short" })} – ${dateLabel(addDays(startOfWeek, weekDays.length - 1))}`
+                : dateLabel(date, {
+                    weekday: "long",
+                    day: "numeric",
+                    month: "long",
+                    year: "numeric",
+                  })}</strong
+            >
+            {#if saving}<span class="muted" role="status"
+                >Änderung wird gespeichert …</span
+              >{/if}
           </div>
-          {#if !weekLessons.length}<div class="empty-panel">
-              <Icon name="calendar" size={38} />
-              <h2>Deine Woche ist noch frei</h2>
-              <p>
-                Füge eine einzelne oder wöchentlich wiederkehrende Stunde hinzu.
-              </p>
-              <button class="primary" onclick={() => newLesson()}
-                >Erste Stunde hinzufügen</button
+          {#if selected}<div class="calendar-selected-toolbar">
+              <span
+                ><strong>{selected.subject_name}</strong> · {selected.class_name}
+                · {selected.starts_at}–{selected.ends_at}</span
               >
-            </div>
-          {:else}<div class="timetable-scroll">
-              <table class="timetable-grid">
-                <thead
-                  ><tr
-                    ><th scope="col">Zeit</th>{#each weekDays as day}<th
-                        scope="col"
-                        class:today={day === today}
-                        ><button
-                          onclick={() => {
-                            changeDate(day);
-                            calendarMode = "day";
-                          }}
-                          >{dateLabel(day, { weekday: "short" })}<small
-                            >{dateLabel(day, {
-                              day: "numeric",
-                              month: "short",
-                            })}</small
-                          ></button
-                        ></th
-                      >{/each}</tr
-                  ></thead
-                ><tbody
-                  >{#each times as time}<tr
-                      ><th scope="row">{time}</th>{#each weekDays as day}<td
-                          >{#each weekLessons.filter((l) => l.lesson_date === day && l.starts_at === time) as lesson}<button
-                              class={`timetable-lesson ${subjectStyle(lesson.subject_name)}`}
-                              class:selected={lesson.id === selected?.id}
-                              class:cancelled={lesson.status === "cancelled"}
-                              onclick={() => selectLesson(lesson)}
-                              ><strong>{lesson.subject_name}</strong><span
-                                >{lesson.class_name}</span
-                              ><small
-                                >{lesson.starts_at}–{lesson.ends_at}{lesson.status ===
-                                "cancelled"
-                                  ? " · Fällt aus"
-                                  : ""}</small
-                              ></button
-                            >{:else}<button
-                              class="empty-slot"
-                              onclick={() => newLesson(day, time)}
-                              aria-label={`Stunde am ${dateLabel(day)} hinzufügen`}
-                              >+</button
-                            >{/each}</td
-                        >{/each}</tr
-                    >{/each}</tbody
+              <div>
+                <button
+                  class="text-button"
+                  onclick={() => {
+                    editing = selected;
+                    editor = true;
+                  }}
+                  disabled={saving}><Icon name="edit" /> Bearbeiten</button
                 >
-              </table>
+                <button
+                  class="text-button"
+                  onclick={() =>
+                    newLesson(
+                      selected.lesson_date,
+                      selected.ends_at,
+                      null,
+                      selected.classroom_id,
+                    )}
+                  disabled={saving || timeMinutes(selected.ends_at) > 1424}
+                  ><Icon name="plus" /> Stunde danach</button
+                >
+                <button
+                  class="icon-button"
+                  aria-label="Stundenauswahl schließen"
+                  onclick={() => {
+                    selectedId = "";
+                    onroute("", date);
+                  }}
+                  disabled={saving}><Icon name="close" /></button
+                >
+              </div>
             </div>{/if}
+          <LessonCalendar
+            days={calendarMode === "week" ? weekDays : [date]}
+            {lessons}
+            selectedId={selected?.id || ""}
+            {saving}
+            onselect={selectLesson}
+            oncreate={(day, start, end) => newLesson(day, start, end)}
+            onchange={reschedule}
+            onedit={(lesson) => {
+              editing = lesson;
+              editor = true;
+            }}
+          />
         </section>
       {/if}
-      <section class="workspace-card day-panel">
-        <div class="panel-heading">
-          <h2>
-            {view === "performances" ? "Stunden & Leistungen" : "Stundenplan"} ·
-            {dateLabel(date, {
-              weekday: "long",
-              day: "numeric",
-              month: "long",
-            })}
-          </h2>
-        </div>
-        {@render schedule(dayLessons)}
-        {#if view === "performances" && dayLessons.length}<p
-            class="muted note-help"
-          >
-            Wähle eine Stunde. Bereits erfasste Bewertungen lassen sich prüfen
-            und korrigieren.
-          </p>{/if}
-      </section>
     </div>
-    <aside class="lesson-detail-column">
+    <aside
+      class="lesson-detail-column"
+      class:calendar-detail-empty={view === "calendar" && !selected}
+    >
       {#if selected}
         <section class="workspace-card lesson-detail">
           <div class="lesson-detail-title">
@@ -859,6 +962,12 @@
           <h3>
             <span class="gold"><Icon name="bolt" /></span> Werkzeuge zur Stunde
           </h3>
+          {#if selected.performance_count > 0}<button
+              class="secondary"
+              onclick={() => reviewLesson(selected)}
+              disabled={saving}
+              ><Icon name="chart" /> Leistungen ansehen ({selected.performance_count})</button
+            >{/if}
           <div class="lesson-tool-buttons">
             <button
               class="secondary"
@@ -893,7 +1002,7 @@
     {classrooms}
     lesson={editing}
     initialDate={date}
-    initialClassId={classId}
+    initialClassId={newClassId || classId}
     initialStart={newStart}
     initialEnd={newEnd}
     bind:saving
@@ -903,7 +1012,15 @@
   />{/if}
 {#if performance}<Performance
     lesson={performance}
+    studentId={performanceStudent}
     bind:saving
     onclose={closePerformance}
+    onreview={() => reviewLesson(performance)}
     {onerror}
+  />{/if}
+{#if quickAction}<ClassActionPicker
+    {classrooms}
+    action={quickAction}
+    onchoose={chooseActionClass}
+    onclose={() => (quickAction = "")}
   />{/if}
