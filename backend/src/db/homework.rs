@@ -128,7 +128,7 @@ impl Database {
         .await?
         .ok_or_else(missing)?;
         let pupils = sqlx::query_as::<_, Submission>(
-            "SELECT a.student_id, s.name, a.handed_in_at
+            "SELECT a.student_id, s.name, a.handed_in_at, a.quality
              FROM homework_submissions a
              JOIN students s ON s.id=a.student_id
              WHERE a.homework_id=? AND a.classroom_id=?
@@ -227,12 +227,44 @@ impl Database {
             if !seen.insert(ch.student_id.clone()) {
                 return Err(bad("Ein Kind wurde mehrfach angegeben."));
             }
+            if ch.handed_in.is_none() && ch.quality.is_none() {
+                return Err(bad("Bitte eine Abgabe oder Qualität angeben."));
+            }
+            let quality = ch.quality.as_ref().and_then(|q| q.as_deref());
+            if let Some(quality) = quality {
+                if !matches!(
+                    quality,
+                    "all_correct" | "partially_correct" | "missing" | "all_incorrect"
+                ) {
+                    return Err(bad("Bitte eine gültige Qualität angeben."));
+                }
+                if ch
+                    .handed_in
+                    .is_some_and(|handed_in| handed_in == (quality == "missing"))
+                {
+                    return Err(bad("Abgabe und Qualität widersprechen sich."));
+                }
+            }
             if sqlx::query(
                 "UPDATE homework_submissions
-             SET handed_in_at=CASE WHEN ? THEN COALESCE(handed_in_at, unixepoch()) ELSE NULL END,
+             SET handed_in_at=CASE
+                 WHEN ?='missing' OR ?=0 THEN NULL
+                 WHEN ? IS NOT NULL OR ?=1 THEN COALESCE(handed_in_at, unixepoch())
+                 ELSE handed_in_at END,
+             quality=CASE
+                 WHEN ? THEN ?
+                 WHEN ?=0 OR (?=1 AND quality='missing') THEN NULL
+                 ELSE quality END,
              updated_by=?
              WHERE homework_id=? AND classroom_id=? AND student_id=?",
             )
+            .bind(quality)
+            .bind(ch.handed_in)
+            .bind(quality)
+            .bind(ch.handed_in)
+            .bind(ch.quality.is_some())
+            .bind(quality)
+            .bind(ch.handed_in)
             .bind(ch.handed_in)
             .bind(teacher)
             .bind(homework)

@@ -120,12 +120,12 @@ The API supports `GET /api/classrooms/{class}/attendance/{YYYY-MM-DD}` and `PATC
 1. Add the class's subjects under **Klasseneinstellungen → Fächer**. Subjects can be renamed; a subject used by any homework cannot be removed, preserving the history.
 2. Open **Hausaufgaben** and choose **Hausaufgabe erstellen**. Select a subject, enter a title and due date, and optionally add a description and a PDF worksheet (up to 10 MB). Existing entries can be edited, and worksheets can be added, replaced, downloaded, or removed.
 3. **Offen** shows active homework across all subjects, ordered by due date. Filter to a single subject as needed. Past-due homework stays open and is labelled **Überfällig**.
-4. Open an assignment and check each pupil who has handed it in, or mark all remaining pupils at once. Changes save automatically. Duplicate names remain separate through pupil IDs.
+4. Open an assignment and check each pupil who has handed it in, or mark all remaining pupils at once. Each pupil also has a **Qualität** dropdown: **alles richtig**, **teilweise korrekt**, **fehlt**, or **alles falsch**. A quality other than **fehlt** also marks the homework as handed in; **fehlt** clears the submission. **Nicht bewertet** clears only the quality. Changes save automatically. Duplicate names remain separate through pupil IDs.
 5. The final submission automatically closes the assignment and moves it into **Verlauf**. **Manuell abschließen** also closes an assignment with outstanding submissions; those remain visible in its history. **Wieder öffnen** reopens a manually closed assignment with outstanding submissions.
 
 The assigned pupil list is a snapshot of the roster when the homework is created. Adding pupils later does not change existing assignments. Renaming a pupil preserves the assignment; deleting one removes their submission and recalculates automatic completion for the remaining assigned pupils. Homework requires at least one pupil at creation. An assignment without remaining pupils can still be closed manually.
 
-History retains assignment details, due dates, worksheets, and per-pupil submission dates. Correcting a submission in an automatically closed assignment reopens it if a pupil is now outstanding. Manual closures remain closed when submissions are corrected.
+History retains assignment details, due dates, worksheets, and per-pupil submission dates and quality. Quality can be changed in both open assignments and history. Existing submissions remain ungraded after upgrading. Correcting a submission in an automatically closed assignment reopens it if a pupil is now outstanding. Manual closures remain closed when submissions are corrected.
 
 Class owners and shared editors can manage subjects, homework, worksheets, and submissions. Access checks also protect PDF downloads, and revoked sharing applies to subsequent requests. Submission batches and automatic closure are saved in one write transaction. Worksheets are private SQLite blobs rather than public files, so existing database backups include them.
 
@@ -133,7 +133,7 @@ The homework API is independent of mathematics grading periods:
 
 - `GET/POST /api/classrooms/{class}/subjects`; `PATCH/DELETE /subjects/{subject}` under the same class.
 - `GET/POST /api/classrooms/{class}/homework`; `GET/PATCH /homework/{homework}` under the same class. Creation/editing accepts `subject_id`, `title`, `description`, and `due_date` (`YYYY-MM-DD`).
-- `PATCH …/homework/{homework}/submissions` accepts `{"changes":[{"student_id":"…","handed_in":true}]}`.
+- `PATCH …/homework/{homework}/submissions` accepts `{"changes":[{"student_id":"…","handed_in":true}]}` and/or `quality`: `all_correct`, `partially_correct`, `missing`, `all_incorrect`, or `null` to clear the quality. Omitting `quality` preserves it unless the submission status changes incompatibly. A quality automatically sets the submission status; contradictory status/quality pairs are rejected atomically. Clearing quality alone preserves the submission date.
 - `PATCH …/homework/{homework}/closure` accepts `{"closed":true}` (manual close) or `false` (reopen when submissions remain outstanding).
 - `GET/PUT/DELETE …/homework/{homework}/worksheet`; upload raw PDF bytes with `PUT …/worksheet?name=worksheet.pdf`. The 10 MB body limit applies only to worksheet routes; other API requests retain their 1 MB limit.
 

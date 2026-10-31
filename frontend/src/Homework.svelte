@@ -32,6 +32,12 @@
     file = $state(null),
     formError = $state("");
   let pupilSearch = $state("");
+  const qualityOptions = [
+    { value: "all_correct", label: "alles richtig" },
+    { value: "partially_correct", label: "teilweise korrekt" },
+    { value: "missing", label: "fehlt" },
+    { value: "all_incorrect", label: "alles falsch" },
+  ];
   let detailVersion = 0;
   const locked = $derived(disabled || saving || loading || detailLoading);
   const openCount = $derived(entries.filter((h) => h.status === "open").length);
@@ -475,7 +481,9 @@
           </div>
           <p class="muted">
             Sobald alle Kinder abgegeben haben, wird die Hausaufgabe automatisch
-            abgeschlossen. Abgaben lassen sich auch im Verlauf korrigieren.
+            abgeschlossen. Abgaben lassen sich auch im Verlauf korrigieren. Eine
+            Qualitätsbewertung markiert die Abgabe ebenfalls; „fehlt“ setzt sie
+            auf ausstehend.
           </p>
           <div class="inline-actions homework-bulk">
             <button
@@ -499,29 +507,54 @@
             /></label
           >
           <div class="homework-pupils">
-            {#each pupils as pupil (pupil.student_id)}<label
+            {#each pupils as pupil (pupil.student_id)}<div
                 class="homework-pupil"
                 class:handed-in={!!pupil.handed_in_at}
-                ><input
-                  type="checkbox"
-                  checked={!!pupil.handed_in_at}
-                  disabled={locked}
-                  onchange={(e) => {
-                    const checked = e.currentTarget.checked;
-                    e.currentTarget.checked = !!pupil.handed_in_at;
-                    saveSubmissions([
-                      { student_id: pupil.student_id, handed_in: checked },
-                    ]);
-                  }}
-                /><strong>{pupil.name}</strong><span
-                  >{pupil.handed_in_at
-                    ? "Abgegeben · " +
-                      new Date(pupil.handed_in_at * 1000).toLocaleDateString(
-                        "de-DE",
-                      )
-                    : "Noch offen"}</span
-                ></label
               >
+                <label class="homework-submission"
+                  ><input
+                    type="checkbox"
+                    checked={!!pupil.handed_in_at}
+                    disabled={locked}
+                    onchange={(e) => {
+                      const checked = e.currentTarget.checked;
+                      e.currentTarget.checked = !!pupil.handed_in_at;
+                      saveSubmissions([
+                        { student_id: pupil.student_id, handed_in: checked },
+                      ]);
+                    }}
+                  /><span class="homework-pupil-info"
+                    ><strong>{pupil.name}</strong><span
+                      >{pupil.handed_in_at
+                        ? "Abgegeben · " +
+                          new Date(
+                            pupil.handed_in_at * 1000,
+                          ).toLocaleDateString("de-DE")
+                        : "Noch offen"}</span
+                    ></span
+                  ></label
+                >
+                <label class="homework-quality">
+                  <span>Qualität</span>
+                  <select
+                    aria-label={`Qualität für ${pupil.name}`}
+                    value={pupil.quality || ""}
+                    disabled={locked}
+                    onchange={(e) => {
+                      const quality = e.currentTarget.value || null;
+                      e.currentTarget.value = pupil.quality || "";
+                      saveSubmissions([
+                        { student_id: pupil.student_id, quality },
+                      ]);
+                    }}
+                  >
+                    <option value="">Nicht bewertet</option>
+                    {#each qualityOptions as option}
+                      <option value={option.value}>{option.label}</option>
+                    {/each}
+                  </select>
+                </label>
+              </div>
             {:else}<p class="muted">Keine passenden Kinder.</p>{/each}
           </div>
           <p class="muted">
@@ -584,7 +617,8 @@
           maxlength="10000"
           rows="4"
           placeholder="Was sollen die Kinder bearbeiten?"
-          disabled={saving}></textarea></label
+          disabled={saving}
+        ></textarea></label
       >
       <label
         >Abgabedatum<input

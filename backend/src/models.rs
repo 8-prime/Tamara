@@ -97,6 +97,7 @@ pub(crate) struct Submission {
     pub(crate) student_id: String,
     pub(crate) name: String,
     pub(crate) handed_in_at: Option<i64>,
+    pub(crate) quality: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -111,7 +112,17 @@ pub(crate) struct HomeworkInput {
 #[derive(Deserialize)]
 pub(crate) struct SubmissionChange {
     pub(crate) student_id: String,
-    pub(crate) handed_in: bool,
+    pub(crate) handed_in: Option<bool>,
+    // Omitted preserves the quality; explicit null clears it.
+    #[serde(default, deserialize_with = "submission_quality")]
+    pub(crate) quality: Option<Option<String>>,
+}
+
+fn submission_quality<'de, D>(deserializer: D) -> Result<Option<Option<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer).map(Some)
 }
 
 #[derive(Serialize, FromRow)]

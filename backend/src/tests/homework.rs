@@ -59,6 +59,185 @@ fn input(subject: &Value) -> Value {
 }
 
 #[tokio::test]
+async fn homework_quality_tracks_submissions_and_preserves_closure_rules() {
+    let (mut owner, mut editor, _db, prefix, subject) = setup().await;
+    owner
+        .call(
+            &format!("{prefix}/students"),
+            "POST",
+            json!({"names":["Same Name","Same Name"]}),
+            200,
+        )
+        .await;
+    let created = owner
+        .call(&format!("{prefix}/homework"), "POST", input(&subject), 200)
+        .await;
+    let hw = format!("{prefix}/homework/{}", created["id"].as_str().unwrap());
+    let endpoint = format!("{hw}/submissions");
+    let initial = owner.get(&hw).await;
+    let p0 = initial["submissions"][0]["student_id"].as_str().unwrap();
+    let p1 = initial["submissions"][1]["student_id"].as_str().unwrap();
+    assert!(initial["submissions"][0]["quality"].is_null());
+    let change = json!({"changes":[{"student_id":p0,"quality":"all_correct"}]});
+    editor.call(&endpoint, "PATCH", change.clone(), 404).await;
+    owner
+        .call(
+            &format!("{prefix}/teachers"),
+            "POST",
+            json!({"email":"homework-editor@example.test"}),
+            204,
+        )
+        .await;
+    for quality in [
+        "all_correct",
+        "partially_correct",
+        "all_incorrect",
+        "missing",
+    ] {
+        editor
+            .call(
+                &endpoint,
+                "PATCH",
+                json!({"changes":[{"student_id":p0,"quality":quality}]}),
+                204,
+            )
+            .await;
+        let saved = owner.get(&hw).await;
+        assert_eq!(saved["submissions"][0]["quality"], quality);
+        assert_eq!(
+            saved["submissions"][0]["handed_in_at"].is_null(),
+            quality == "missing"
+        );
+        assert!(saved["submissions"][1]["quality"].is_null());
+        assert!(saved["submissions"][1]["handed_in_at"].is_null());
+        assert_eq!(saved["homework"]["status"], "open");
+    }
+    // Legacy checkbox and bulk updates clear an incompatible "missing" quality.
+    owner.call(&endpoint, "PATCH", json!({"changes":[{"student_id":p0,"handed_in":true},{"student_id":p1,"quality":"all_incorrect"}]}), 204).await;
+    let closed = owner.get(&hw).await;
+    assert_eq!(closed["homework"]["status"], "auto_closed");
+    assert!(closed["submissions"][0]["quality"].is_null());
+    let submitted_at = closed["submissions"][1]["handed_in_at"].clone();
+    owner
+        .call(
+            &endpoint,
+            "PATCH",
+            json!({"changes":[{"student_id":p1,"handed_in":true}]}),
+            204,
+        )
+        .await;
+    assert_eq!(owner.get(&hw).await, closed);
+    // Correcting and clearing a grade preserve the original hand-in date.
+    for quality in [json!("partially_correct"), Value::Null] {
+        owner
+            .call(
+                &endpoint,
+                "PATCH",
+                json!({"changes":[{"student_id":p1,"quality":quality}]}),
+                204,
+            )
+            .await;
+        let saved = owner.get(&hw).await;
+        assert_eq!(saved["submissions"][1]["quality"], quality);
+        assert_eq!(saved["submissions"][1]["handed_in_at"], submitted_at);
+        assert_eq!(saved["homework"]["status"], "auto_closed");
+    }
+    owner
+        .call(
+            &endpoint,
+            "PATCH",
+            json!({"changes":[{"student_id":p1,"quality":"missing"}]}),
+            204,
+        )
+        .await;
+    let reopened = owner.get(&hw).await;
+    assert_eq!(reopened["homework"]["status"], "open");
+    assert_eq!(reopened["homework"]["handed_in_count"], 1);
+    assert!(reopened["homework"]["closed_at"].is_null());
+    for invalid in [
+        json!({"student_id":p1,"quality":"unknown"}),
+        json!({"student_id":p1,"handed_in":true,"quality":"missing"}),
+        json!({"student_id":p1,"handed_in":false,"quality":"all_correct"}),
+        json!({"student_id":p1}),
+        json!({"student_id":"not-assigned","quality":"all_correct"}),
+        json!({"student_id":p0,"quality":"missing"}),
+    ] {
+        owner
+            .call(
+                &endpoint,
+                "PATCH",
+                json!({"changes":[{"student_id":p0,"quality":"all_correct"},invalid]}),
+                400,
+            )
+            .await;
+        assert_eq!(owner.get(&hw).await, reopened);
+    }
+    owner
+        .call(
+            &format!("{hw}/closure"),
+            "PATCH",
+            json!({"closed":true}),
+            204,
+        )
+        .await;
+    owner.call(&endpoint, "PATCH", change, 204).await;
+    owner
+        .call(
+            &endpoint,
+            "PATCH",
+            json!({"changes":[{"student_id":p0,"handed_in":false}]}),
+            204,
+        )
+        .await;
+    let manual = owner.get(&hw).await;
+    assert_eq!(manual["homework"]["status"], "manually_closed");
+    assert!(manual["submissions"][0]["quality"].is_null());
+    assert!(manual["submissions"][0]["handed_in_at"].is_null());
+}
+
+#[tokio::test]
+async fn homework_quality_migration_preserves_existing_submissions() {
+    let db = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    for migration in [
+        include_str!("../../migrations/0001_initial.sql"),
+        include_str!("../../migrations/0005_homework.sql"),
+    ] {
+        sqlx::raw_sql(migration).execute(&db).await.unwrap();
+    }
+    sqlx::raw_sql("INSERT INTO teachers(id,name,email,password_hash) VALUES('t','Teacher','test@example.test','hash');
+      INSERT INTO classrooms(id,name,school_year) VALUES('c','2a','2026/27');
+      INSERT INTO students(id,classroom_id,name) VALUES('p','c','Child'),('q','c','Other');
+      INSERT INTO subjects(id,classroom_id,name) VALUES('s','c','Deutsch');
+      INSERT INTO homework(id,classroom_id,subject_id,title,due_date,created_by) VALUES('h','c','s','Lesen','2026-10-29','t');
+      INSERT INTO homework_submissions(homework_id,classroom_id,student_id,handed_in_at) VALUES('h','c','p',123),('h','c','q',NULL);")
+      .execute(&db).await.unwrap();
+    sqlx::raw_sql(include_str!("../../migrations/0008_homework_quality.sql"))
+        .execute(&db)
+        .await
+        .unwrap();
+    let records: Vec<(String, Option<i64>, Option<String>)> = sqlx::query_as(
+        "SELECT student_id,handed_in_at,quality FROM homework_submissions ORDER BY student_id",
+    )
+    .fetch_all(&db)
+    .await
+    .unwrap();
+    assert_eq!(
+        records,
+        vec![("p".into(), Some(123), None), ("q".into(), None, None)]
+    );
+    assert!(
+        sqlx::query("UPDATE homework_submissions SET quality='invalid'")
+            .execute(&db)
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
 async fn homework_snapshots_rosters_and_closes_atomically_with_shared_access() {
     let (mut owner, mut editor, db, prefix, subject) = setup().await;
     let endpoint = format!("{prefix}/homework");

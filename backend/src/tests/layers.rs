@@ -121,11 +121,13 @@ async fn repositories_roll_back_submission_batches_without_http() {
             vec![
                 SubmissionChange {
                     student_id: students[0].id.clone(),
-                    handed_in: true,
+                    handed_in: Some(true),
+                    quality: None,
                 },
                 SubmissionChange {
                     student_id: "not-assigned".into(),
-                    handed_in: true,
+                    handed_in: Some(true),
+                    quality: None,
                 },
             ],
         )
@@ -150,7 +152,8 @@ async fn repositories_roll_back_submission_batches_without_http() {
             .into_iter()
             .map(|student| SubmissionChange {
                 student_id: student.id,
-                handed_in: true,
+                handed_in: Some(true),
+                quality: None,
             })
             .collect(),
     )
