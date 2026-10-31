@@ -32,6 +32,11 @@
     file = $state(null),
     formError = $state("");
   let pupilSearch = $state("");
+  let notePupil = $state(null),
+    noteDialog = $state(null),
+    noteInput = $state(null),
+    noteText = $state(""),
+    noteError = $state("");
   const qualityOptions = [
     { value: "all_correct", label: "alles richtig" },
     { value: "partially_correct", label: "teilweise korrekt" },
@@ -255,6 +260,53 @@
           : "Abgaben gespeichert";
     } catch (e) {
       fail(e);
+    } finally {
+      saving = false;
+    }
+  }
+  function notePreview(note) {
+    const characters = Array.from(note.replace(/\s+/g, " ").trim());
+    const truncated = characters.length > 140;
+    return {
+      text:
+        characters.slice(0, 140).join("").trimEnd() + (truncated ? "…" : ""),
+      truncated,
+    };
+  }
+  async function openPupilNote(pupil) {
+    if (locked || notePupil) return;
+    notePupil = pupil;
+    noteText = pupil.note || "";
+    noteError = "";
+    await tick();
+    noteDialog.showModal();
+    noteInput.focus();
+  }
+  function closePupilNote() {
+    if (saving) return;
+    noteDialog.close();
+    notePupil = null;
+  }
+  async function savePupilNote(event) {
+    event.preventDefault();
+    if (locked || !notePupil) return;
+    saving = true;
+    noteError = "";
+    notice = "";
+    try {
+      await api(`${base}/${assignment.id}/submissions`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          changes: [{ student_id: notePupil.student_id, note: noteText }],
+        }),
+      });
+      await refresh();
+      noteDialog.close();
+      notePupil = null;
+      notice = noteText.trim() ? "Notiz gespeichert" : "Notiz entfernt";
+    } catch (e) {
+      noteError = e.message;
+      if (e.status === 401) onerror(e);
     } finally {
       saving = false;
     }
@@ -507,7 +559,9 @@
             /></label
           >
           <div class="homework-pupils">
-            {#each pupils as pupil (pupil.student_id)}<div
+            {#each pupils as pupil (pupil.student_id)}
+              {@const preview = notePreview(pupil.note || "")}
+              <div
                 class="homework-pupil"
                 class:handed-in={!!pupil.handed_in_at}
               >
@@ -554,6 +608,20 @@
                     {/each}
                   </select>
                 </label>
+                <div class="homework-pupil-note">
+                  {#if pupil.note}<p>{preview.text}</p>{/if}
+                  <button
+                    class="text-button homework-note-action"
+                    disabled={locked}
+                    aria-label={`Notiz für ${pupil.name} ${pupil.note ? "öffnen" : "hinzufügen"}`}
+                    onclick={() => openPupilNote(pupil)}
+                    >{pupil.note
+                      ? preview.truncated
+                        ? "Notiz öffnen"
+                        : "Bearbeiten"
+                      : "Notiz hinzufügen"}</button
+                  >
+                </div>
               </div>
             {:else}<p class="muted">Keine passenden Kinder.</p>{/each}
           </div>
@@ -572,6 +640,58 @@
     </div>
   {/if}
 </section>
+
+{#if notePupil}
+  <dialog
+    bind:this={noteDialog}
+    aria-labelledby="homework-note-title"
+    oncancel={(event) => {
+      event.preventDefault();
+      closePupilNote();
+    }}
+  >
+    <form class="modal-content" onsubmit={savePupilNote}>
+      <div class="modal-top">
+        <span class="eyebrow">HAUSAUFGABENNOTIZ</span>
+        <button
+          class="icon-button"
+          type="button"
+          disabled={saving}
+          aria-label="Dialog schließen"
+          onclick={closePupilNote}>×</button
+        >
+      </div>
+      <h2 id="homework-note-title">Notiz für {notePupil.name}</h2>
+      <p>{assignment.title}</p>
+      {#if noteError}<div class="alert" role="alert">{noteError}</div>{/if}
+      <label>
+        Notiz
+        <textarea
+          bind:this={noteInput}
+          bind:value={noteText}
+          maxlength="10000"
+          rows="7"
+          placeholder="Was möchtest du zu dieser Hausaufgabe festhalten?"
+          disabled={saving}
+        ></textarea>
+      </label>
+      {#if notePupil.note}<p class="muted">
+          Leeren und speichern, um die Notiz zu entfernen.
+        </p>{/if}
+      <div class="modal-actions">
+        <button
+          class="secondary"
+          type="button"
+          disabled={saving}
+          onclick={closePupilNote}>Abbrechen</button
+        >
+        <button class="primary" disabled={saving || disabled}>
+          {saving ? "Wird gespeichert …" : "Speichern"}
+        </button>
+      </div>
+    </form>
+  </dialog>
+{/if}
 
 {#if editor}
   <dialog

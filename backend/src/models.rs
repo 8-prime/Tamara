@@ -98,6 +98,7 @@ pub(crate) struct Submission {
     pub(crate) name: String,
     pub(crate) handed_in_at: Option<i64>,
     pub(crate) quality: Option<String>,
+    pub(crate) note: String,
 }
 
 #[derive(Deserialize)]
@@ -116,6 +117,7 @@ pub(crate) struct SubmissionChange {
     // Omitted preserves the quality; explicit null clears it.
     #[serde(default, deserialize_with = "submission_quality")]
     pub(crate) quality: Option<Option<String>>,
+    pub(crate) note: Option<String>,
 }
 
 fn submission_quality<'de, D>(deserializer: D) -> Result<Option<Option<String>>, D::Error>

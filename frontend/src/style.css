@@ -3118,6 +3118,7 @@ kbd {
 .homework-pupil {
   display: flex;
   flex-direction: row;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   padding: 15px 0;
@@ -3165,6 +3166,28 @@ kbd {
 .homework-quality select {
   width: 100%;
   font-size: 12px;
+}
+.homework-pupil-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  flex-basis: 100%;
+  min-width: 0;
+  padding-left: 30px;
+}
+.homework-pupil-note p {
+  flex: 1 1 180px;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.homework-note-action {
+  flex-shrink: 0;
+  font-size: 11px;
 }
 .homework-detail > .save-status {
   margin-top: 18px;
@@ -3255,9 +3278,6 @@ kbd {
   }
   .homework-detail h2 {
     font-size: 21px;
-  }
-  .homework-pupil {
-    flex-wrap: wrap;
   }
   .homework-submission {
     flex-basis: 100%;

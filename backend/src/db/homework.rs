@@ -128,7 +128,7 @@ impl Database {
         .await?
         .ok_or_else(missing)?;
         let pupils = sqlx::query_as::<_, Submission>(
-            "SELECT a.student_id, s.name, a.handed_in_at, a.quality
+            "SELECT a.student_id, s.name, a.handed_in_at, a.quality, a.note
              FROM homework_submissions a
              JOIN students s ON s.id=a.student_id
              WHERE a.homework_id=? AND a.classroom_id=?
@@ -227,8 +227,18 @@ impl Database {
             if !seen.insert(ch.student_id.clone()) {
                 return Err(bad("Ein Kind wurde mehrfach angegeben."));
             }
-            if ch.handed_in.is_none() && ch.quality.is_none() {
-                return Err(bad("Bitte eine Abgabe oder Qualität angeben."));
+            if ch.handed_in.is_none() && ch.quality.is_none() && ch.note.is_none() {
+                return Err(bad("Bitte eine Abgabe, Qualität oder Notiz angeben."));
+            }
+            let note = ch.note.as_deref().map(str::trim);
+            if let Some(note) = note {
+                if note.chars().count() > 10000
+                    || note
+                        .chars()
+                        .any(|c| c.is_control() && c != '\n' && c != '\r' && c != '\t')
+                {
+                    return Err(bad("Die Notiz darf höchstens 10000 Zeichen enthalten."));
+                }
             }
             let quality = ch.quality.as_ref().and_then(|q| q.as_deref());
             if let Some(quality) = quality {
@@ -255,7 +265,7 @@ impl Database {
                  WHEN ? THEN ?
                  WHEN ?=0 OR (?=1 AND quality='missing') THEN NULL
                  ELSE quality END,
-             updated_by=?
+             note=COALESCE(?, note), updated_by=?
              WHERE homework_id=? AND classroom_id=? AND student_id=?",
             )
             .bind(quality)
@@ -266,6 +276,7 @@ impl Database {
             .bind(quality)
             .bind(ch.handed_in)
             .bind(ch.handed_in)
+            .bind(note)
             .bind(teacher)
             .bind(homework)
             .bind(class)

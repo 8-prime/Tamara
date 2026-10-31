@@ -196,7 +196,7 @@ async fn homework_quality_tracks_submissions_and_preserves_closure_rules() {
 }
 
 #[tokio::test]
-async fn homework_quality_migration_preserves_existing_submissions() {
+async fn homework_submission_migrations_preserve_existing_records() {
     let db = SqlitePoolOptions::new()
         .max_connections(1)
         .connect("sqlite::memory:")
@@ -219,15 +219,28 @@ async fn homework_quality_migration_preserves_existing_submissions() {
         .execute(&db)
         .await
         .unwrap();
-    let records: Vec<(String, Option<i64>, Option<String>)> = sqlx::query_as(
-        "SELECT student_id,handed_in_at,quality FROM homework_submissions ORDER BY student_id",
+    sqlx::query("UPDATE homework_submissions SET quality='all_correct' WHERE student_id='p'")
+        .execute(&db)
+        .await
+        .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../migrations/0009_homework_submission_notes.sql"
+    ))
+    .execute(&db)
+    .await
+    .unwrap();
+    let records: Vec<(String, Option<i64>, Option<String>, String)> = sqlx::query_as(
+        "SELECT student_id,handed_in_at,quality,note FROM homework_submissions ORDER BY student_id",
     )
     .fetch_all(&db)
     .await
     .unwrap();
     assert_eq!(
         records,
-        vec![("p".into(), Some(123), None), ("q".into(), None, None)]
+        vec![
+            ("p".into(), Some(123), Some("all_correct".into()), "".into()),
+            ("q".into(), None, None, "".into()),
+        ]
     );
     assert!(
         sqlx::query("UPDATE homework_submissions SET quality='invalid'")
@@ -235,6 +248,109 @@ async fn homework_quality_migration_preserves_existing_submissions() {
             .await
             .is_err()
     );
+}
+
+#[tokio::test]
+async fn homework_notes_are_per_pupil_and_assignment_and_independent_of_grading() {
+    let (mut owner, mut editor, _db, prefix, subject) = setup().await;
+    owner
+        .call(
+            &format!("{prefix}/students"),
+            "POST",
+            json!({"names":["Same Name","Same Name"]}),
+            200,
+        )
+        .await;
+    let homework = format!("{prefix}/homework");
+    let first = owner.call(&homework, "POST", input(&subject), 200).await;
+    let second = owner.call(&homework, "POST", input(&subject), 200).await;
+    let hw = format!("{homework}/{}", first["id"].as_str().unwrap());
+    let other_hw = format!("{homework}/{}", second["id"].as_str().unwrap());
+    let endpoint = format!("{hw}/submissions");
+    let initial = owner.get(&hw).await;
+    let p0 = initial["submissions"][0]["student_id"].as_str().unwrap();
+    let p1 = initial["submissions"][1]["student_id"].as_str().unwrap();
+    assert_eq!(initial["submissions"][0]["note"], "");
+    let content = "Guter Lösungsweg.\nÜbertrag üben. <b>Nur Text</b>";
+    let change = json!({"changes":[{"student_id":p0,"note":format!("  {content}\n ")}]});
+    editor.call(&endpoint, "PATCH", change.clone(), 404).await;
+    owner.call(&endpoint, "PATCH", change, 204).await;
+    let saved = owner.get(&hw).await;
+    let mut expected = initial.clone();
+    expected["submissions"][0]["note"] = json!(content);
+    assert_eq!(saved, expected);
+    assert_eq!(owner.get(&other_hw).await["submissions"][0]["note"], "");
+    owner.call(&endpoint, "PATCH", json!({"changes":[{"student_id":p0,"quality":"all_correct"},{"student_id":p1,"handed_in":true}]}), 204).await;
+    let closed = owner.get(&hw).await;
+    assert_eq!(closed["homework"]["status"], "auto_closed");
+    assert_eq!(closed["submissions"][0]["note"], content);
+    // Editing a note in history leaves grades, submission dates and closure intact.
+    owner
+        .call(
+            &format!("{prefix}/teachers"),
+            "POST",
+            json!({"email":"homework-editor@example.test"}),
+            204,
+        )
+        .await;
+    let long_note = "ü".repeat(10000);
+    editor
+        .call(
+            &endpoint,
+            "PATCH",
+            json!({"changes":[{"student_id":p0,"note":long_note}]}),
+            204,
+        )
+        .await;
+    let mut expected = closed.clone();
+    expected["submissions"][0]["note"] = json!(long_note);
+    assert_eq!(owner.get(&hw).await, expected);
+    for invalid in [
+        json!({"student_id":p1,"note":"x".repeat(10001)}),
+        json!({"student_id":p1,"note":"bad\u{7}text"}),
+        json!({"student_id":"not-assigned","note":"Other child"}),
+        json!({"student_id":p0,"note":"Duplicate"}),
+    ] {
+        owner
+            .call(
+                &endpoint,
+                "PATCH",
+                json!({"changes":[{"student_id":p0,"note":"Must roll back"},invalid]}),
+                400,
+            )
+            .await;
+        assert_eq!(owner.get(&hw).await, expected);
+    }
+    owner
+        .call(
+            &endpoint,
+            "PATCH",
+            json!({"changes":[{"student_id":p0,"note":"Corrected note"}]}),
+            204,
+        )
+        .await;
+    owner
+        .call(
+            &endpoint,
+            "PATCH",
+            json!({"changes":[{"student_id":p0,"handed_in":false}]}),
+            204,
+        )
+        .await;
+    let reopened = owner.get(&hw).await;
+    assert_eq!(reopened["homework"]["status"], "open");
+    assert_eq!(reopened["submissions"][0]["note"], "Corrected note");
+    owner
+        .call(
+            &endpoint,
+            "PATCH",
+            json!({"changes":[{"student_id":p0,"note":" \n\t "}]}),
+            204,
+        )
+        .await;
+    let mut cleared = reopened;
+    cleared["submissions"][0]["note"] = json!("");
+    assert_eq!(owner.get(&hw).await, cleared);
 }
 
 #[tokio::test]
