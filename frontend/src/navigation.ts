@@ -30,8 +30,8 @@ export function readRoute() {
   };
 }
 export function workspaceUrl(
-  classId,
-  feature,
+  classId: string,
+  feature: string,
   tab = "open",
   subject = "",
   lesson = "",

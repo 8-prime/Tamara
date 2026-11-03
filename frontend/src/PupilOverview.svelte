@@ -1,9 +1,9 @@
-<script>
+<script lang="ts">
   import DevelopmentChart from "./DevelopmentChart.svelte";
   import ClassDevelopment from "./ClassDevelopment.svelte";
-  import { api } from "./api.js";
-  import { dateLabel, initials } from "./teaching.js";
-  import { recentMissing, performancePoints } from "./pupil-history.js";
+  import { api } from "./api.ts";
+  import { dateLabel, initials } from "./teaching.ts";
+  import { recentMissing, performancePoints } from "./pupil-history.ts";
   let {
     classId,
     students,

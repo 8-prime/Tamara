@@ -1,5 +1,5 @@
-export function performanceLessons(
-  lessons,
+export function performanceLessons<T extends { id: string; subject_id: string; lesson_date: string; starts_at: string; performance_count: number; classroom_id?: string; status?: string; subject_name?: string; class_name?: string; topic?: string; ends_at?: string; pupil_count?: number }>(
+  lessons: T[],
   { subject = "", from = "", until = "", recordedOnly = true } = {},
 ) {
   return lessons
@@ -18,9 +18,9 @@ export function performanceLessons(
     );
 }
 
-export function pupilPerformances(
-  students,
-  records,
+export function pupilPerformances<S extends { id: string; name: string }, R extends { student_id: string }>(
+  students: S[],
+  records: R[],
   search = "",
   recordedOnly = false,
 ) {

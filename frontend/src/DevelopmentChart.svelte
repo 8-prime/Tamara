@@ -1,11 +1,11 @@
-<script>
-  import { dateLabel } from "./teaching.js";
-  import { performancePoints } from "./pupil-history.js";
+<script lang="ts">
+  import { dateLabel } from "./teaching.ts";
+  import { performancePoints } from "./pupil-history.ts";
   let { records, label } = $props();
   const points = $derived(performancePoints(records));
   const subjects = $derived(
     [
-      ...new Map(
+      ...new Map<string, { id: string; name: string }>(
         records.map((r) => [
           r.subject_id,
           { id: r.subject_id, name: r.subject_name },

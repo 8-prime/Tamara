@@ -1,7 +1,7 @@
-<script>
+<script lang="ts">
   import { tick } from "svelte";
   import Icon from "./Icon.svelte";
-  import { dateKey, dateLabel, subjectStyle } from "./teaching.js";
+  import { dateKey, dateLabel, subjectStyle } from "./teaching.ts";
   import {
     timeMinutes,
     timeString,
@@ -9,7 +9,7 @@
     moveRange,
     resizeRange,
     dayLayout,
-  } from "./calendar.js";
+  } from "./calendar.ts";
 
   let {
     days,

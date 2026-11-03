@@ -6,7 +6,7 @@ import {
   taskDone,
   monday,
   addDays,
-} from "./teaching.js";
+} from "./teaching.ts";
 const lesson = {
   id: "one",
   lesson_date: "2026-10-29",

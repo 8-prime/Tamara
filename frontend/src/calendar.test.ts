@@ -7,7 +7,7 @@ import {
   moveRange,
   resizeRange,
   dayLayout,
-} from "./calendar.js";
+} from "./calendar.ts";
 
 test("calendar maps times to a continuous quarter-hour axis", () => {
   assert.equal(timeMinutes("08:45"), 525);

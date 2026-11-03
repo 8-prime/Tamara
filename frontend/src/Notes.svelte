@@ -1,8 +1,8 @@
-<script>
+<script lang="ts">
   import { onMount, tick } from "svelte";
-  import { api } from "./api.js";
+  import { api } from "./api.ts";
   import Icon from "./Icon.svelte";
-  import { initials } from "./teaching.js";
+  import { initials } from "./teaching.ts";
 
   let {
     classId,
@@ -35,7 +35,7 @@
   const base = $derived(`/classrooms/${classId}/notes`);
   const locked = $derived(disabled || saving);
   const pupil = $derived(students.find((s) => s.id === studentId));
-  const pupilNames = $derived(new Map(students.map((s) => [s.id, s.name])));
+  const pupilNames = $derived(new Map<string, string>(students.map((s) => [s.id, s.name])));
   const matches = $derived(
     students.filter((s) => normalize(s.name).includes(normalize(nameSearch))),
   );

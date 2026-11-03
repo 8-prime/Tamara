@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { recentMissing, performancePoints } from "./pupil-history.js";
+import { recentMissing, performancePoints } from "./pupil-history.ts";
 
 test("recent missing homework excludes today, future, older and submitted work", () => {
   const homework = [
@@ -38,7 +38,7 @@ test("chart positions preserve date gaps, rating scale and chronological order",
 });
 
 test("class averages group by lesson without filling in missing ratings", async () => {
-  const { classLessonAverages } = await import("./pupil-history.js");
+  const { classLessonAverages } = await import("./pupil-history.ts");
   const records = [
     {
       lesson_id: "one",
@@ -79,7 +79,7 @@ test("class averages group by lesson without filling in missing ratings", async 
 
 test("class summaries keep duplicate names separate and do not count future homework as missing", async () => {
   const { classPupilSummaries, filterPupilHistory } =
-    await import("./pupil-history.js");
+    await import("./pupil-history.ts");
   const students = [
     { id: "a", name: "Alex" },
     { id: "b", name: "Alex" },

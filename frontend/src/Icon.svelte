@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
   let { name = "plus", size = 16 } = $props();
 </script>
 

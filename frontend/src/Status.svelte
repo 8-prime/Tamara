@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
   let {
     value = null,
     achievedOn = null,

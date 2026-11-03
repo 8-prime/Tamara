@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   performanceLessons,
   pupilPerformances,
-} from "./performance-history.js";
+} from "./performance-history.ts";
 const lessons = [
   {
     id: "old",
