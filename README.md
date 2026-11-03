@@ -49,6 +49,12 @@ Work areas have URLs such as `/classes/{class-id}/homework?tab=open`. Refresh, d
 
 Manage the class roster under **Kinder**, and its subjects and sharing under **Klasseneinstellungen**. View modes, dates, grading periods, homework tabs, and subject filters remain within their respective pages.
 
+## Pupil history
+
+Under **Klassen → Kinder**, select a pupil’s name or **Verlauf** to open their detail view. The performance development chart shows recorded lesson ratings (1–4) over time, with a separate line for each subject. Filter by subject to focus both the chart and histories. The table below the chart retains every rating and observation; missing ratings are not treated as zero. Homework history includes all assignments actually assigned to the pupil, submission dates, quality and notes, including closed assignments.
+
+The pupil list and detail view flag assignments that remain unsubmitted and were due in the 14 calendar days before today. Assignments due today or later, older outstanding work, and homework never assigned to that pupil do not contribute to this recent warning. Older outstanding work remains visible in the full history. The detail URL includes the pupil ID and supports refresh and browser Back/Forward. Existing class sharing permissions also protect the history API (`GET /api/classrooms/{class}/pupil-history`).
+
 ## Timetable and lesson workflow
 
 Add a lesson under **Kalender → Stunde hinzufügen**. Class, subject, date, start and end are required. A missing class or subject can be created inline. Subjects remain class-specific. Room, topic and learning goals are optional. A weekly repeat creates dated lessons through the selected end date, up to one year. Overlaps in the teacher's schedule are rejected atomically, including overlaps later in a series.

@@ -459,3 +459,113 @@ async fn cancelling_a_series_preserves_lessons_with_captured_work() {
     assert_eq!(list[1]["status"], "scheduled");
     assert_eq!(list[2]["status"], "cancelled");
 }
+
+#[tokio::test]
+async fn pupil_history_combines_records_and_respects_class_access() {
+    let (mut owner, db, class, subject, student) = setup().await;
+    let lesson = owner
+        .call("/lessons", "POST", lesson_input(&class, &subject), 200)
+        .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    owner
+        .call(
+            &format!("/lessons/{lesson}/performances"),
+            "PATCH",
+            json!({"student_id":student,"rating":3,"observation":"Fortschritt"}),
+            204,
+        )
+        .await;
+    let homework = owner
+        .call(
+            &format!("/classrooms/{class}/homework"),
+            "POST",
+            json!({"subject_id":subject,"title":"Übung","due_date":"2026-10-30"}),
+            200,
+        )
+        .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    owner.call(&format!("/classrooms/{class}/homework/{homework}/submissions"), "PATCH", json!({"changes":[{"student_id":student,"quality":"partially_correct","note":"Weiter üben"}]}), 204).await;
+    let path = format!("/classrooms/{class}/pupil-history");
+    let history = owner.get(&path).await;
+    assert_eq!(history["performances"].as_array().unwrap().len(), 1);
+    assert_eq!(history["performances"][0]["student_id"], student);
+    assert_eq!(history["performances"][0]["rating"], 3);
+    assert_eq!(history["performances"][0]["observation"], "Fortschritt");
+    let assignments = history["homework"].as_array().unwrap();
+    assert_eq!(assignments.len(), 2); // Duplicate names remain distinct pupils.
+    let submitted = assignments
+        .iter()
+        .find(|r| r["student_id"] == student)
+        .unwrap();
+    assert_eq!(submitted["quality"], "partially_correct");
+    assert_eq!(submitted["note"], "Weiter üben");
+    assert!(submitted["handed_in_at"].is_number());
+    assert!(assignments.iter().any(|r| r["handed_in_at"].is_null()));
+    let mut outsider = Client::new(owner.app.clone());
+    outsider.call(&path, "GET", Value::Null, 401).await;
+    let invite = owner
+        .call(
+            "/admin/invitations",
+            "POST",
+            json!({"label":"History reader"}),
+            200,
+        )
+        .await;
+    let teacher = outsider
+        .call(
+            "/auth/register",
+            "POST",
+            registration(
+                "pupil-outsider@example.test",
+                invite["token"].as_str().unwrap(),
+            ),
+            200,
+        )
+        .await;
+    outsider.call(&path, "GET", Value::Null, 404).await;
+    owner
+        .call(
+            &format!("/classrooms/{class}/teachers"),
+            "POST",
+            json!({"email":"pupil-outsider@example.test"}),
+            204,
+        )
+        .await;
+    assert_eq!(outsider.get(&path).await, history);
+    owner
+        .call(
+            &format!(
+                "/classrooms/{class}/teachers/{}",
+                teacher["id"].as_str().unwrap()
+            ),
+            "DELETE",
+            Value::Null,
+            204,
+        )
+        .await;
+    outsider.call(&path, "GET", Value::Null, 404).await;
+    // A newly added pupil was never assigned this homework.
+    owner
+        .call(
+            &format!("/classrooms/{class}/students"),
+            "POST",
+            json!({"names":["New pupil"]}),
+            200,
+        )
+        .await;
+    assert_eq!(
+        owner.get(&path).await["homework"].as_array().unwrap().len(),
+        2
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM students")
+            .fetch_one(&db)
+            .await
+            .unwrap(),
+        3
+    );
+}

@@ -5,13 +5,15 @@
   import Icon from "./Icon.svelte";
   import Attendance from "./Attendance.svelte";
   import Homework from "./Homework.svelte";
+  import PupilOverview from "./PupilOverview.svelte";
   import Notes from "./Notes.svelte";
   import ClassSettings from "./ClassSettings.svelte";
   import Teaching from "./Teaching.svelte";
   import Tasks from "./Tasks.svelte";
   import { readRoute, workspaceUrl, workAreas } from "./navigation.js";
   let feature = $state("dashboard");
-  let routeLesson = $state(""),
+  let routePupil = $state(""),
+    routeLesson = $state(""),
     routeDate = $state(""),
     noteContext = $state(null),
     teachingView = $state(null);
@@ -248,6 +250,7 @@
       feature = route.feature;
       routeLesson = route.lesson;
       routeDate = route.date;
+      routePupil = route.pupil;
       noteContext = null;
       homeworkTab = route.tab;
       homeworkSubject = route.subject;
@@ -276,6 +279,7 @@
       homeworkSubject,
       routeLesson,
       routeDate,
+      routePupil,
     );
     if (window.location.pathname + window.location.search !== url)
       window.history[replace ? "replaceState" : "pushState"]({}, "", url);
@@ -300,6 +304,7 @@
     )
       return;
     if (feature !== area) {
+      routePupil = "";
       routeLesson = "";
       routeDate = "";
       noteContext = null;
@@ -396,6 +401,7 @@
       feature = route.feature;
       routeLesson = route.lesson;
       routeDate = route.date;
+      routePupil = route.pupil;
       homeworkTab = route.tab;
       homeworkSubject = route.subject;
     }
@@ -487,6 +493,7 @@
     studentId = "";
     rosterSearch = "";
     if (pushRoute) {
+      routePupil = "";
       homeworkSubject = "";
       routeLesson = "";
       routeDate = "";
@@ -1103,55 +1110,28 @@
               ><Icon name="plus" /> Kinder hinzufügen</button
             >
           </section>
-          <section
-            class="workspace-card settings-panel"
-            aria-label="Kinderliste"
-          >
-            <label class="pupil-search"
-              >Kind suchen<input
-                bind:value={rosterSearch}
-                placeholder="Name …"
-              /></label
-            >
-            <div class="class-roster">
-              {#each visibleStudents as s (s.id)}<div class="collaborator">
-                  <div class="pupil-identity">
-                    <span class="avatar small-avatar">{initials(s.name)}</span>
-                    <strong>{s.name}</strong>
-                  </div>
-                  <div class="inline-actions">
-                    <button
-                      class="text-button"
-                      disabled={saving || busy}
-                      onclick={async () => {
-                        targetId = s.id;
-                        await openModal("rename");
-                        fieldName = s.name;
-                      }}>Bearbeiten</button
-                    >{#if workspace?.role === "owner"}<button
-                        class="text-button danger-text"
-                        disabled={saving || busy}
-                        onclick={() => {
-                          targetId = s.id;
-                          openModal("delete");
-                        }}>Entfernen</button
-                      >{/if}
-                  </div>
-                </div>
-              {:else}<div class="empty-panel">
-                  <h3>
-                    {students.length
-                      ? "Kein passendes Kind"
-                      : "Wer lernt in deiner Klasse?"}
-                  </h3>
-                  <p>
-                    {students.length
-                      ? "Versuche einen anderen Namen."
-                      : "Füge Kinder einzeln oder als Namensliste hinzu."}
-                  </p>
-                </div>{/each}
-            </div>
-          </section>
+          {#key classId}<PupilOverview
+              {classId}
+              {students}
+              pupilId={routePupil}
+              bind:search={rosterSearch}
+              owner={workspace?.role === "owner"}
+              disabled={saving || busy}
+              onselect={(id) => {
+                routePupil = id;
+                writeRoute();
+              }}
+              onrename={async (s) => {
+                targetId = s.id;
+                await openModal("rename");
+                fieldName = s.name;
+              }}
+              ondelete={(s) => {
+                targetId = s.id;
+                openModal("delete");
+              }}
+              onerror={fail}
+            />{/key}
         {:else if feature === "attendance"}
           <section class="page-heading">
             <div>
