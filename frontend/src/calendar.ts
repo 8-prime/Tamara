@@ -1,5 +1,5 @@
 export function timeMinutes(time: string) {
-  const [hours, minutes] = time.split(":").map(Number);
+  const [hours = 0, minutes = 0] = time.split(":").map(Number);
   return hours * 60 + minutes;
 }
 
@@ -43,7 +43,7 @@ export function dayLayout<T extends { id: string; starts_at: string; ends_at: st
   let group: typeof sorted = [],
     groupEnd = -1;
   function flush() {
-    const lanes = [];
+    const lanes: number[] = [];
     for (const item of group) {
       let lane = lanes.findIndex((end) => end <= item.start);
       if (lane < 0) lane = lanes.length;

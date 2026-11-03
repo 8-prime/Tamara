@@ -1,12 +1,25 @@
 <script lang="ts">
+  import { PerformanceSchema, WorkspaceSchema } from "./models.ts";
+  import type { Student, Lesson, Performance, ErrorHandler } from "./models.ts";
   import { untrack } from "svelte";
-  import { api } from "./api.ts";
+  import { api, errorMessage, errorStatus } from "./api.ts";
   import Icon from "./Icon.svelte";
   import { dateLabel, initials, subjectStyle } from "./teaching.ts";
   import {
     performanceLessons,
     pupilPerformances,
   } from "./performance-history.ts";
+  interface Props {
+    classId: string;
+    className: string;
+    lessons: Lesson[];
+    loading: boolean;
+    lessonId?: string;
+    saving?: boolean;
+    onselect: (lesson: Lesson) => void;
+    oncapture: (lesson: Lesson, studentId?: string) => void;
+    onerror: ErrorHandler;
+  }
   let {
     classId,
     className,
@@ -17,15 +30,15 @@
     onselect,
     oncapture,
     onerror,
-  } = $props();
+  }: Props = $props();
   let subject = $state(""),
     from = $state(""),
     until = $state(""),
     recordedOnly = $state(true);
   let search = $state(""),
     pupilsOnlyRecorded = $state(false),
-    students = $state([]),
-    records = $state([]),
+    students = $state<Student[]>([]),
+    records = $state<Performance[]>([]),
     recordsLoading = $state(false),
     error = $state("");
   let selectedId = $state(untrack(() => lessonId));
@@ -63,8 +76,8 @@
     recordsLoading = !!lesson;
     if (lesson)
       Promise.all([
-        api(`/classrooms/${lesson.classroom_id}/workspace`),
-        api(`/lessons/${lesson.id}/performances`),
+        api(WorkspaceSchema, `/classrooms/${lesson.classroom_id}/workspace`),
+        api(PerformanceSchema.array(), `/lessons/${lesson.id}/performances`),
       ])
         .then(([workspace, list]) => {
           if (active) {
@@ -74,8 +87,8 @@
         })
         .catch((e) => {
           if (active) {
-            error = e.message;
-            if (e.status === 401) onerror(e);
+            error = errorMessage(e);
+            if (errorStatus(e) === 401) onerror(e);
           }
         })
         .finally(() => {
@@ -94,7 +107,7 @@
       pupilsOnlyRecorded = false;
     });
   });
-  function select(lesson) {
+  function select(lesson: Lesson) {
     if (saving) return;
     selectedId = lesson.id;
     search = "";

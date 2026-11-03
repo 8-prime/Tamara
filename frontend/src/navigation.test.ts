@@ -15,5 +15,5 @@ test("pupil detail URLs restore class and pupil on refresh and history navigatio
     mockWindow.location = new URL(workspaceUrl("class-1", "students"), location);
     assert.equal(readRoute().pupil, "");
     assert.equal(workspaceUrl("class-1", "notes", "open", "", "", "", "pupil-2"), "/classes/class-1/notes");
-  } finally { delete globalThis.window; }
+  } finally { Reflect.deleteProperty(globalThis, "window"); }
 });

@@ -1,29 +1,38 @@
 <script lang="ts">
+  import { ConferenceSchema } from "./models.ts";
+  import type { Snapshot } from "./conference-store.ts";
+  import type { Classroom, Conference, ErrorHandler } from "./models.ts";
   import { onMount } from 'svelte';
-  import { api } from './api.ts';
+  import { api, errorMessage, errorStatus } from './api.ts';
   import { titleOf, snapshots, records, persist, forget } from './conference-store.ts';
-  let { accountId, classrooms, onerror } = $props();
-  let entries = $state([]), selected = $state(''), loading = $state(true);
-  let error = $state(''), localError = $state(''), status = $state(''), historyOpen = $state(false), preview = $state(null);
-  let histories = $state({});
-  let pending = new Map(), timer, queue = Promise.resolve(), running = false, disposed = false;
+  interface Props {
+    accountId: string;
+    classrooms: Classroom[];
+    onerror: ErrorHandler;
+  }
+  let { accountId, classrooms, onerror }: Props = $props();
+  let entries = $state<Conference[]>([]), selected = $state(''), loading = $state(true);
+  let error = $state(''), localError = $state(''), status = $state(''), historyOpen = $state(false), preview = $state<Snapshot<Conference> | null>(null);
+  let histories = $state<Record<string, Snapshot<Conference>[]>>({});
+  let pending = new Map<string, Conference>(), timer: ReturnType<typeof setTimeout> | undefined, queue = Promise.resolve(), running = false, disposed = false;
   let current = $derived(entries.find(n => n.id === selected));
   let ordered = $derived([...entries].sort((a,b) => b.date.localeCompare(a.date)));
-  function localWrite(note, history, dirty) {
-    note = JSON.parse(JSON.stringify(note));
-    history = JSON.parse(JSON.stringify(history));
+  function localWrite(note: Conference, history: Snapshot<Conference>[], dirty: boolean) {
+    note = $state.snapshot(note);
+    history = $state.snapshot(history);
     queue = queue.catch(() => {}).then(() => persist(accountId, note, history, dirty)).catch(() => {
       localError = 'Browserspeicher nicht verfügbar. Bitte vor dem Schließen auf „Gespeichert“ warten.';
     });
     return queue;
   }
-  function change(values, force = false) {
-    if (!histories[current.id]?.length) histories[current.id] = snapshots([], current);
+  function change(values: Partial<Conference>, force = false) {
+    if (!current) return;
+    if (!histories[current.id]?.length) histories[current.id] = snapshots([], $state.snapshot(current));
     const note = { ...current, ...values };
     entries = entries.map(n => n.id === note.id ? note : n);
     histories[note.id] = snapshots(histories[note.id] || [], note, Date.now(), force);
     pending.set(note.id, note);
-    localWrite(note, histories[note.id], true);
+    localWrite(note, histories[note.id] ?? [], true);
     status = 'Ungespeicherte Änderungen';
     clearTimeout(timer);
     timer = setTimeout(flush, 800);
@@ -34,7 +43,9 @@
     error = '';
     try {
       while (pending.size) {
-        const [id, note] = pending.entries().next().value;
+        const entry = pending.entries().next().value;
+        if (!entry) break;
+        const [id, note] = entry;
         status = 'Speichert …';
         await api(`/conferences/${id}`, { method: 'PUT', body: JSON.stringify(note) });
         if (pending.get(id) === note) {
@@ -45,9 +56,9 @@
       }
       status = 'Gespeichert';
     } catch (e) {
-      error = e.message;
+      error = errorMessage(e);
       status = 'Noch nicht gespeichert';
-      if (e.status === 401 && !disposed) onerror(e);
+      if (errorStatus(e) === 401 && !disposed) onerror(e);
     } finally { running = false; }
   }
   function create() {
@@ -69,25 +80,26 @@
       await forget(accountId, id);
       entries = entries.filter(n => n.id !== id);
       delete histories[id]; selected = entries[0]?.id || ''; preview = null;
-    } catch(e) { error = e.message; }
+    } catch(e) { error = errorMessage(e); }
   }
   function restore() {
-    histories[selected] = snapshots(histories[selected] || [], current, Date.now(), true);
+    if (!current || !preview) return;
+    histories[selected] = snapshots(histories[selected] || [], $state.snapshot(current), Date.now(), true);
     change({ date: preview.note.date, title: preview.note.title, classroom_id: preview.note.classroom_id, content: preview.note.content }, true);
     preview = null;
   }
-  function beforeUnload(event) {
+  function beforeUnload(event: BeforeUnloadEvent) {
     if (pending.size) { event.preventDefault(); event.returnValue = ''; }
   }
   onMount(() => {
     (async () => {
-      let local = [];
+      let local: Awaited<ReturnType<typeof records>> = [];
       try { local = await records(accountId); } catch { localError = 'Lokale Wiederherstellung ist in diesem Browser nicht verfügbar.'; }
-      try { entries = await api('/conferences'); }
-      catch(e) { error = e.message; entries = local.map(x => x.note); if(e.status === 401) onerror(e); }
+      try { entries = await api(ConferenceSchema.array(), '/conferences'); }
+      catch(e) { error = errorMessage(e); entries = local.map(x => x.note); if(errorStatus(e) === 401) onerror(e); }
       for (const row of local) {
         histories[row.note.id] = row.history.filter(x => Date.now() - x.at < 7*86400000);
-        localWrite(row.note, histories[row.note.id], row.pending);
+        localWrite(row.note, histories[row.note.id] ?? [], row.pending);
         if (row.pending) {
           entries = [...entries.filter(n => n.id !== row.note.id), row.note];
           pending.set(row.note.id, row.note);
@@ -132,7 +144,7 @@
           {#each (histories[selected] || []).filter(x => Date.now()-x.at < 7*86400000).slice().reverse() as snapshot}
             <button class="secondary" onclick={() => preview = snapshot}>{new Date(snapshot.at).toLocaleString('de-DE')}</button>
           {:else}<p>Noch kein lokaler Verlauf.</p>{/each}
-          {#if preview}<h3>{titleOf(preview.note)}</h3><p>{preview.note.date} · {classrooms.find(c => c.id === preview.note.classroom_id)?.name || 'Keine Klasse'}</p><pre>{preview.note.content || '(Leere Notiz)'}</pre><button class="primary" onclick={restore}>Diesen Stand wiederherstellen</button>{/if}
+          {#if preview}<h3>{titleOf(preview.note)}</h3><p>{preview.note.date} · {classrooms.find(c => c.id === preview?.note.classroom_id)?.name || 'Keine Klasse'}</p><pre>{preview.note.content || '(Leere Notiz)'}</pre><button class="primary" onclick={restore}>Diesen Stand wiederherstellen</button>{/if}
         </div>
       {/if}
     </section>

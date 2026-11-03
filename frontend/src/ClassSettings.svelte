@@ -1,7 +1,18 @@
 <script lang="ts">
+  import { SubjectSchema } from "./models.ts";
+  import type { Classroom, Collaborator, Subject, ErrorHandler } from "./models.ts";
   import { onMount } from "svelte";
-  import { api } from "./api.ts";
+  import { api, errorMessage, errorStatus } from "./api.ts";
 
+  interface Props {
+    classId: string;
+    classroom: Classroom | null;
+    teachers?: Collaborator[];
+    saving?: boolean;
+    disabled?: boolean;
+    onshare: () => void;
+    onerror: ErrorHandler;
+  }
   let {
     classId,
     classroom,
@@ -10,8 +21,8 @@
     disabled = false,
     onshare,
     onerror,
-  } = $props();
-  let subjects = $state([]),
+  }: Props = $props();
+  let subjects = $state<Subject[]>([]),
     loading = $state(true),
     error = $state(""),
     notice = $state("");
@@ -19,13 +30,13 @@
     editingId = $state("");
   const locked = $derived(saving || disabled || loading);
 
-  function fail(e) {
-    error = e.message;
-    if (e.status === 401) onerror(e);
+  function fail(e: unknown) {
+    error = errorMessage(e);
+    if (errorStatus(e) === 401) onerror(e);
   }
   onMount(() => {
     let active = true;
-    api(`/classrooms/${classId}/subjects`)
+    api(SubjectSchema.array(), `/classrooms/${classId}/subjects`)
       .then((data) => {
         if (active) subjects = data;
       })
@@ -39,7 +50,7 @@
       active = false;
     };
   });
-  async function save(e) {
+  async function save(e: SubmitEvent) {
     e.preventDefault();
     if (locked) return;
     saving = true;
@@ -53,7 +64,7 @@
           body: JSON.stringify({ name }),
         },
       );
-      subjects = await api(`/classrooms/${classId}/subjects`);
+      subjects = await api(SubjectSchema.array(), `/classrooms/${classId}/subjects`);
       editingId = "";
       name = "";
       notice = "Fach gespeichert";
@@ -63,7 +74,7 @@
       saving = false;
     }
   }
-  async function remove(subject) {
+  async function remove(subject: Subject) {
     if (locked) return;
     saving = true;
     error = "";
@@ -166,8 +177,8 @@
     class="workspace-card settings-panel"
     aria-labelledby="class-details-title"
   >
-    <h2 id="class-details-title">{classroom.name}</h2>
-    <p>Schuljahr {classroom.school_year} · {classroom.student_count} Kinder</p>
+    <h2 id="class-details-title">{classroom?.name}</h2>
+    <p>Schuljahr {classroom?.school_year} · {classroom?.student_count} Kinder</p>
     <h3>Gemeinsam arbeiten</h3>
     <p>Teile die Klasse mit anderen Lehrkräften.</p>
     <ul class="subject-list">

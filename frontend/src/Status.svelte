@@ -1,4 +1,13 @@
 <script lang="ts">
+  interface Props {
+    value?: string | null;
+    achievedOn?: string | null;
+    ondate: (date: string) => void | Promise<void>;
+    onchoose: (value: string | null) => void;
+    compact?: boolean;
+    disabled?: boolean;
+    label?: string;
+  }
   let {
     value = null,
     achievedOn = null,
@@ -7,7 +16,7 @@
     compact = false,
     disabled = false,
     label = "Bewertung",
-  } = $props();
+  }: Props = $props();
   const options = [
     { v: null, s: "–", t: "Nicht beurteilt" },
     { v: "no", s: "×", t: "Noch nicht" },

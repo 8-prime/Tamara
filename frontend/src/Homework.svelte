@@ -1,8 +1,35 @@
 <script lang="ts">
+  import {
+    SubmissionSchema,
+    HomeworkDetailSchema,
+    HomeworkSchema,
+    IdSchema,
+    SubjectSchema,
+  } from "./models.ts";
+  import type {
+    SubmissionChange,
+    Student,
+    Subject,
+    Homework,
+    Submission,
+    HomeworkDetail,
+    ErrorHandler,
+  } from "./models.ts";
   import { onMount, tick } from "svelte";
-  import { api } from "./api.ts";
+  import { api, errorMessage, errorStatus } from "./api.ts";
   import Icon from "./Icon.svelte";
 
+  interface Props {
+    classId: string;
+    saving?: boolean;
+    disabled?: boolean;
+    onerror: ErrorHandler;
+    students: Student[];
+    tab?: string;
+    subject?: string;
+    onsettings: () => void;
+    onfilters: (tab: string, subject: string) => void;
+  }
   let {
     classId,
     students,
@@ -13,31 +40,31 @@
     onerror,
     onsettings,
     onfilters,
-  } = $props();
-  let entries = $state([]),
-    subjects = $state([]),
+  }: Props = $props();
+  let entries = $state<Homework[]>([]),
+    subjects = $state<Subject[]>([]),
     loading = $state(true),
     detailLoading = $state(false);
-  let detail = $state(null),
+  let detail = $state<HomeworkDetail | null>(null),
     error = $state(""),
     notice = $state("");
   let editor = $state(false),
-    dialog = $state(null),
+    dialog = $state<HTMLDialogElement | undefined>(),
     editingId = $state(""),
     persistedId = $state("");
   let title = $state(""),
     description = $state(""),
     dueDate = $state(""),
     subjectId = $state(""),
-    file = $state(null),
+    file = $state<File | null>(null),
     formError = $state("");
   let pupilSearch = $state("");
-  let notePupil = $state(null),
-    noteDialog = $state(null),
-    noteInput = $state(null),
+  let notePupil = $state<Submission | null>(null),
+    noteDialog = $state<HTMLDialogElement | undefined>(),
+    noteInput = $state<HTMLTextAreaElement | undefined>(),
     noteText = $state(""),
     noteError = $state("");
-  const qualityOptions = [
+  const qualityOptions: {value: NonNullable<Submission["quality"]>; label: string}[] = [
     { value: "all_correct", label: "alles richtig" },
     { value: "partially_correct", label: "teilweise korrekt" },
     { value: "missing", label: "fehlt" },
@@ -77,10 +104,10 @@
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
-  function dateLabel(date) {
+  function dateLabel(date: string) {
     return new Date(date + "T12:00:00").toLocaleDateString("de-DE");
   }
-  function statusLabel(h) {
+  function statusLabel(h: Homework) {
     return h.status === "auto_closed"
       ? "Alle haben abgegeben"
       : h.status === "manually_closed"
@@ -89,13 +116,13 @@
           ? "Überfällig"
           : "Offen";
   }
-  function fail(e) {
-    error = e.message;
-    if (e.status === 401) onerror(e);
+  function fail(e: unknown) {
+    error = errorMessage(e);
+    if (errorStatus(e) === 401) onerror(e);
   }
   onMount(() => {
     let active = true;
-    Promise.all([api(base), api(`/classrooms/${classId}/subjects`)])
+    Promise.all([api(HomeworkSchema.array(), base), api(SubjectSchema.array(), `/classrooms/${classId}/subjects`)])
       .then(([homework, list]) => {
         if (!active) return;
         entries = homework;
@@ -115,8 +142,8 @@
   });
   async function refresh(id = assignment?.id) {
     const [list, data] = await Promise.all([
-      api(base),
-      id ? api(`${base}/${id}`) : Promise.resolve(null),
+      api(HomeworkSchema.array(), base),
+      id ? api(HomeworkDetailSchema, `${base}/${id}`) : Promise.resolve(null),
     ]);
     entries = list;
     detail = data;
@@ -127,7 +154,7 @@
     try {
       const [, list] = await Promise.all([
         refresh(),
-        api(`/classrooms/${classId}/subjects`),
+        api(SubjectSchema.array(), `/classrooms/${classId}/subjects`),
       ]);
       subjects = list;
       error = "";
@@ -137,7 +164,7 @@
       detailLoading = false;
     }
   }
-  async function selectHomework(id) {
+  async function selectHomework(id: string) {
     if (locked) return;
     const version = ++detailVersion;
     detailLoading = true;
@@ -145,7 +172,7 @@
     notice = "";
     pupilSearch = "";
     try {
-      const data = await api(`${base}/${id}`);
+      const data = await api(HomeworkDetailSchema, `${base}/${id}`);
       if (version === detailVersion) detail = data;
     } catch (e) {
       if (version === detailVersion) fail(e);
@@ -153,13 +180,13 @@
       if (version === detailVersion) detailLoading = false;
     }
   }
-  function filters(nextTab, nextSubject) {
+  function filters(nextTab: string, nextSubject: string) {
     if (locked) return;
     detail = null;
     notice = "";
     onfilters(nextTab, nextSubject);
   }
-  async function openEditor(h = null) {
+  async function openEditor(h: Homework | null = null) {
     if (locked) return;
     editingId = h?.id || "";
     persistedId = "";
@@ -171,11 +198,11 @@
     formError = "";
     editor = true;
     await tick();
-    dialog.showModal();
+    dialog?.showModal();
   }
   async function closeEditor() {
     if (saving) return;
-    dialog.close();
+    dialog?.close();
     editor = false;
     if (persistedId) {
       try {
@@ -185,7 +212,7 @@
       }
     }
   }
-  function chooseFile(e) {
+  function chooseFile(e: Event & {currentTarget: HTMLInputElement}) {
     const candidate = e.currentTarget.files?.[0] || null;
     if (
       candidate &&
@@ -200,7 +227,7 @@
     formError = "";
     file = candidate;
   }
-  async function saveEditor(e) {
+  async function saveEditor(e: SubmitEvent) {
     e.preventDefault();
     if (saving || disabled) return;
     saving = true;
@@ -208,7 +235,7 @@
     error = "";
     try {
       const id = editingId || persistedId;
-      const result = await api(id ? `${base}/${id}` : base, {
+      const result = await api(IdSchema.nullable(), id ? `${base}/${id}` : base, {
         method: id ? "PATCH" : "POST",
         body: JSON.stringify({
           title,
@@ -217,7 +244,8 @@
           subject_id: subjectId,
         }),
       });
-      const savedId = id || result.id;
+      const savedId = id || result?.id;
+      if (!savedId) throw new Error("Die Hausaufgabe konnte nicht erstellt werden.");
       persistedId = savedId;
       if (file) {
         await api(
@@ -230,24 +258,24 @@
         );
       }
       await refresh(savedId);
-      onfilters(assignment.status === "open" ? "open" : "history", "");
+      onfilters(assignment?.status === "open" ? "open" : "history", "");
       notice = editingId ? "Hausaufgabe gespeichert" : "Hausaufgabe erstellt";
-      dialog.close();
+      dialog?.close();
       editor = false;
     } catch (e) {
       formError =
-        (persistedId ? "Die Hausaufgabe ist gespeichert. " : "") + e.message;
-      if (e.status === 401) onerror(e);
+        (persistedId ? "Die Hausaufgabe ist gespeichert. " : "") + errorMessage(e);
+      if (errorStatus(e) === 401) onerror(e);
     } finally {
       saving = false;
     }
   }
-  async function saveSubmissions(changes) {
-    if (locked || !changes.length) return;
+  async function saveSubmissions(changes: SubmissionChange[]) {
+    if (locked || !changes.length || !assignment) return;
     saving = true;
     error = "";
     notice = "";
-    const wasOpen = assignment.status === "open";
+    const wasOpen = assignment?.status === "open";
     try {
       await api(`${base}/${assignment.id}/submissions`, {
         method: "PATCH",
@@ -255,7 +283,7 @@
       });
       await refresh();
       notice =
-        wasOpen && assignment.status === "auto_closed"
+        wasOpen && assignment?.status === "auto_closed"
           ? "Alle Kinder haben abgegeben. Die Hausaufgabe wurde automatisch abgeschlossen und liegt jetzt im Verlauf."
           : "Abgaben gespeichert";
     } catch (e) {
@@ -264,7 +292,7 @@
       saving = false;
     }
   }
-  function notePreview(note) {
+  function notePreview(note: string) {
     const characters = Array.from(note.replace(/\s+/g, " ").trim());
     const truncated = characters.length > 140;
     return {
@@ -273,23 +301,23 @@
       truncated,
     };
   }
-  async function openPupilNote(pupil) {
+  async function openPupilNote(pupil: Submission) {
     if (locked || notePupil) return;
     notePupil = pupil;
     noteText = pupil.note || "";
     noteError = "";
     await tick();
-    noteDialog.showModal();
-    noteInput.focus();
+    noteDialog?.showModal();
+    noteInput?.focus();
   }
   function closePupilNote() {
     if (saving) return;
-    noteDialog.close();
+    noteDialog?.close();
     notePupil = null;
   }
-  async function savePupilNote(event) {
+  async function savePupilNote(event: SubmitEvent) {
     event.preventDefault();
-    if (locked || !notePupil) return;
+    if (locked || !notePupil || !assignment) return;
     saving = true;
     noteError = "";
     notice = "";
@@ -301,18 +329,18 @@
         }),
       });
       await refresh();
-      noteDialog.close();
+      noteDialog?.close();
       notePupil = null;
       notice = noteText.trim() ? "Notiz gespeichert" : "Notiz entfernt";
     } catch (e) {
-      noteError = e.message;
-      if (e.status === 401) onerror(e);
+      noteError = errorMessage(e);
+      if (errorStatus(e) === 401) onerror(e);
     } finally {
       saving = false;
     }
   }
-  async function setClosed(closed) {
-    if (locked) return;
+  async function setClosed(closed: boolean) {
+    if (locked || !assignment) return;
     saving = true;
     error = "";
     notice = "";
@@ -332,7 +360,7 @@
     }
   }
   async function removeWorksheet() {
-    if (locked) return;
+    if (locked || !assignment) return;
     saving = true;
     error = "";
     try {
@@ -479,10 +507,10 @@
               }}>Schließen</button
             >
           </div>
-          <h2 id="homework-title">{assignment.title}</h2>
+          <h2 id="homework-title">{assignment?.title}</h2>
           <div class="homework-detail-meta">
             <span>Abgabe: {dateLabel(assignment.due_date)}</span><span
-              class:overdue={assignment.status === "open" &&
+              class:overdue={assignment?.status === "open" &&
                 assignment.due_date < today()}>{statusLabel(assignment)}</span
             >
           </div>
@@ -503,12 +531,12 @@
                 ? ""
                 : " / PDF hinzufügen"}</button
             >
-            {#if assignment.status === "open"}<button
+            {#if assignment?.status === "open"}<button
                 class="secondary small"
                 disabled={locked}
                 onclick={() => setClosed(true)}>Manuell abschließen</button
               >
-            {:else if assignment.status === "manually_closed" && remaining > 0}<button
+            {:else if assignment?.status === "manually_closed" && remaining > 0}<button
                 class="secondary small"
                 disabled={locked}
                 onclick={() => setClosed(false)}>Wieder öffnen</button
@@ -543,7 +571,7 @@
               disabled={locked || !remaining}
               onclick={() =>
                 saveSubmissions(
-                  detail.submissions
+                  (detail?.submissions ?? [])
                     .filter((s) => !s.handed_in_at)
                     .map((s) => ({
                       student_id: s.student_id,
@@ -595,7 +623,7 @@
                     value={pupil.quality || ""}
                     disabled={locked}
                     onchange={(e) => {
-                      const quality = e.currentTarget.value || null;
+                      const quality = SubmissionSchema.shape.quality.parse(e.currentTarget.value || null);
                       e.currentTarget.value = pupil.quality || "";
                       saveSubmissions([
                         { student_id: pupil.student_id, quality },
@@ -662,7 +690,7 @@
         >
       </div>
       <h2 id="homework-note-title">Notiz für {notePupil.name}</h2>
-      <p>{assignment.title}</p>
+      <p>{assignment?.title}</p>
       {#if noteError}<div class="alert" role="alert">{noteError}</div>{/if}
       <label>
         Notiz

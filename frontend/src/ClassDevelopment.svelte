@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Student, History } from "./models.ts";
   import DevelopmentChart from "./DevelopmentChart.svelte";
   import { dateLabel } from "./teaching.ts";
   import {
@@ -6,7 +7,13 @@
     classLessonAverages,
     classPupilSummaries,
   } from "./pupil-history.ts";
-  let { students, data, today, onselect } = $props();
+  interface Props {
+    students: Student[];
+    data: History;
+    today: string;
+    onselect: (id: string) => void;
+  }
+  let { students, data, today, onselect }: Props = $props();
   let subject = $state(""),
     from = $state(""),
     until = $state("");
@@ -30,7 +37,7 @@
   const pupils = $derived(
     classPupilSummaries(students, performances, homework, today),
   );
-  const format = (value) =>
+  const format = (value: number) =>
     value.toLocaleString("de-DE", { maximumFractionDigits: 2 });
 </script>
 

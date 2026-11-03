@@ -2,4 +2,6 @@ import { mount } from "svelte";
 import App from "./App.svelte";
 import "./style.css";
 import "./theme.css";
-mount(App, { target: document.getElementById("app") });
+const target = document.getElementById("app");
+if (!target) throw new Error("Missing app element");
+mount(App, { target });

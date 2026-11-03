@@ -1,9 +1,21 @@
 <script lang="ts">
+  import { NoteSchema } from "./models.ts";
+  import type { LessonContext, Student, Note, ErrorHandler } from "./models.ts";
   import { onMount, tick } from "svelte";
-  import { api } from "./api.ts";
+  import { api, errorMessage, errorStatus } from "./api.ts";
   import Icon from "./Icon.svelte";
   import { initials } from "./teaching.ts";
 
+  interface Props {
+    classId: string;
+    saving?: boolean;
+    disabled?: boolean;
+    onerror: ErrorHandler;
+    students: Student[];
+    className?: string;
+    onstudents: () => void;
+    context?: LessonContext | null;
+  }
   let {
     classId,
     students,
@@ -13,23 +25,23 @@
     onstudents,
     context = null,
     className = "",
-  } = $props();
-  let entries = $state([]),
+  }: Props = $props();
+  let entries = $state<Note[]>([]),
     loading = $state(true),
     error = $state(""),
     notice = $state("");
   let search = $state(""),
     pupilFilter = $state("");
   let step = $state(""),
-    dialog = $state(null),
-    nameInput = $state(null),
-    noteInput = $state(null),
-    newButton = $state(null);
+    dialog = $state<HTMLDialogElement | undefined>(),
+    nameInput = $state<HTMLInputElement | undefined>(),
+    noteInput = $state<HTMLTextAreaElement | undefined>(),
+    newButton = $state<HTMLButtonElement | undefined>();
   let nameSearch = $state(""),
     selectedIndex = $state(0),
     studentId = $state(""),
     content = $state(""),
-    editing = $state(null),
+    editing = $state<Note | null>(null),
     formError = $state(""),
     deleting = $state(false);
   const base = $derived(`/classrooms/${classId}/notes`);
@@ -49,27 +61,28 @@
     ),
   );
 
-  function normalize(value) {
+  function normalize(value: string) {
     return value.trim().toLocaleLowerCase("de");
   }
-  function dateLabel(timestamp) {
+  function dateLabel(timestamp: number) {
     return new Date(timestamp * 1000).toLocaleString("de-DE", {
       dateStyle: "medium",
       timeStyle: "short",
     });
   }
-  function duplicateLabel(student) {
+  function duplicateLabel(student: Student | undefined) {
+    if (!student) return "";
     return students.filter((s) => s.name === student.name).length > 1
       ? `Kind ${students.findIndex((s) => s.id === student.id) + 1}`
       : "";
   }
-  function fail(e) {
-    error = e.message;
-    if (e.status === 401) onerror(e);
+  function fail(e: unknown) {
+    error = errorMessage(e);
+    if (errorStatus(e) === 401) onerror(e);
   }
   onMount(() => {
     let active = true;
-    api(base)
+    api(NoteSchema.array(), base)
       .then((list) => {
         if (active) entries = list;
       })
@@ -88,7 +101,7 @@
     loading = true;
     error = "";
     try {
-      entries = await api(base);
+      entries = await api(NoteSchema.array(), base);
     } catch (e) {
       fail(e);
     } finally {
@@ -107,10 +120,10 @@
     notice = "";
     step = "select";
     await tick();
-    dialog.showModal();
-    nameInput.focus();
+    dialog?.showModal();
+    nameInput?.focus();
   }
-  async function openEditor(note) {
+  async function openEditor(note: Note) {
     if (locked || step) return;
     editing = note;
     studentId = note.student_id;
@@ -119,18 +132,18 @@
     deleting = false;
     step = "write";
     await tick();
-    dialog.showModal();
-    noteInput.focus();
+    dialog?.showModal();
+    noteInput?.focus();
   }
-  async function chooseStudent(student) {
+  async function chooseStudent(student: Student | undefined) {
     if (!student || locked) return;
     studentId = student.id;
     step = "write";
     formError = "";
     await tick();
-    noteInput.focus();
+    noteInput?.focus();
   }
-  function selectionKey(event) {
+  function selectionKey(event: KeyboardEvent) {
     if (event.isComposing) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
@@ -148,7 +161,7 @@
       if (!event.repeat) chooseStudent(matches[selectedIndex]);
     }
   }
-  function noteKey(event) {
+  function noteKey(event: KeyboardEvent) {
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       if (!event.repeat && !deleting) save();
@@ -156,7 +169,7 @@
   }
   async function closeEditor() {
     if (saving) return;
-    dialog.close();
+    dialog?.close();
     step = "";
     // The overview must not retain text-input focus: n starts the next note.
     await tick();
@@ -167,7 +180,7 @@
     saving = true;
     formError = "";
     try {
-      const result = await api(editing ? `${base}/${editing.id}` : base, {
+      const result = await api(NoteSchema, editing ? `${base}/${editing.id}` : base, {
         method: editing ? "PATCH" : "POST",
         body: JSON.stringify({
           student_id: studentId,
@@ -187,8 +200,8 @@
       saving = false;
       closeEditor();
     } catch (e) {
-      formError = e.message;
-      if (e.status === 401) onerror(e);
+      formError = errorMessage(e);
+      if (errorStatus(e) === 401) onerror(e);
     } finally {
       saving = false;
       await tick();
@@ -196,18 +209,19 @@
     }
   }
   async function remove() {
+    if (!editing) return;
     if (locked || !editing) return;
     saving = true;
     formError = "";
     try {
       await api(`${base}/${editing.id}`, { method: "DELETE" });
-      entries = entries.filter((note) => note.id !== editing.id);
+      entries = entries.filter((note) => note.id !== editing?.id);
       notice = "Notiz gelöscht.";
       saving = false;
       closeEditor();
     } catch (e) {
-      formError = e.message;
-      if (e.status === 401) onerror(e);
+      formError = errorMessage(e);
+      if (errorStatus(e) === 401) onerror(e);
     } finally {
       saving = false;
     }
@@ -504,7 +518,7 @@
                 onclick={async () => {
                   step = "select";
                   await tick();
-                  nameInput.focus();
+                  nameInput?.focus();
                 }}
                 disabled={saving}>Anderes Kind</button
               >

@@ -1,8 +1,22 @@
 <script lang="ts">
+  import { IdSchema, SubjectSchema } from "./models.ts";
+  import type { Classroom, Subject, Lesson } from "./models.ts";
   import { onMount, untrack } from "svelte";
-  import { api } from "./api.ts";
+  import { api, errorMessage, errorStatus } from "./api.ts";
   import Icon from "./Icon.svelte";
   import { dateKey } from "./teaching.ts";
+  interface Props {
+    classrooms: Classroom[];
+    lesson?: Lesson | null;
+    initialDate?: string;
+    initialClassId?: string;
+    initialStart?: string;
+    initialEnd?: string;
+    saving?: boolean;
+    onsaved: (id: string, day: string) => void;
+    onclose: () => void;
+    onclasses: () => Promise<void>;
+  }
   let {
     classrooms,
     lesson = null,
@@ -14,9 +28,9 @@
     onsaved,
     onclose,
     onclasses,
-  } = $props();
-  let dialog = $state(null),
-    subjects = $state([]),
+  }: Props = $props();
+  let dialog = $state<HTMLDialogElement | undefined>(),
+    subjects = $state<Subject[]>([]),
     error = $state(""),
     subjectLoading = $state(false);
   let classId = $state(
@@ -40,14 +54,14 @@
     subjectName = $state("");
   const year = new Date().getFullYear() - (new Date().getMonth() < 7 ? 1 : 0);
   let schoolYear = $state(`${year}/${String(year + 1).slice(-2)}`);
-  onMount(() => dialog.showModal());
+  onMount(() => dialog?.showModal());
   $effect(() => {
     const id = classId;
     let active = true;
     subjects = [];
     subjectLoading = true;
     if (id)
-      api(`/classrooms/${id}/subjects`)
+      api(SubjectSchema.array(), `/classrooms/${id}/subjects`)
         .then((data) => {
           if (active) {
             subjects = data;
@@ -55,7 +69,7 @@
           }
         })
         .catch((e) => {
-          if (active) error = e.message;
+          if (active) error = errorMessage(e);
         })
         .finally(() => {
           if (active) subjectLoading = false;
@@ -65,7 +79,7 @@
   });
   function close() {
     if (!saving) {
-      dialog.close();
+      dialog?.close();
       onclose();
     }
   }
@@ -73,7 +87,7 @@
     saving = true;
     error = "";
     try {
-      const result = await api("/classrooms", {
+      const result = await api(IdSchema, "/classrooms", {
         method: "POST",
         body: JSON.stringify({ name: className, school_year: schoolYear }),
       });
@@ -82,7 +96,7 @@
       subjectId = "";
       newClass = false;
     } catch (e) {
-      error = e.message;
+      error = errorMessage(e);
     } finally {
       saving = false;
     }
@@ -91,20 +105,20 @@
     saving = true;
     error = "";
     try {
-      const result = await api(`/classrooms/${classId}/subjects`, {
+      const result = await api(IdSchema, `/classrooms/${classId}/subjects`, {
         method: "POST",
         body: JSON.stringify({ name: subjectName }),
       });
-      subjects = await api(`/classrooms/${classId}/subjects`);
+      subjects = await api(SubjectSchema.array(), `/classrooms/${classId}/subjects`);
       subjectId = result.id;
       newSubject = false;
     } catch (e) {
-      error = e.message;
+      error = errorMessage(e);
     } finally {
       saving = false;
     }
   }
-  async function save(event) {
+  async function save(event: SubmitEvent) {
     event.preventDefault();
     saving = true;
     error = "";
@@ -124,15 +138,15 @@
           subject_id: subjectId,
           repeat_until: repeat ? repeatUntil : null,
         });
-      const result = await api(`/lessons${lesson ? "/" + lesson.id : ""}`, {
+      const result = await api(IdSchema.nullable(), `/lessons${lesson ? "/" + lesson.id : ""}`, {
         method: lesson ? "PATCH" : "POST",
         body: JSON.stringify(data),
       });
-      await onsaved(lesson?.id || result.id, date);
+      await onsaved(lesson?.id || result?.id || "", date);
       saving = false;
       close();
     } catch (e) {
-      error = e.message;
+      error = errorMessage(e);
     } finally {
       saving = false;
     }
