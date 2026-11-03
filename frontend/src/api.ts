@@ -1,4 +1,8 @@
-export async function api(path, options = {}) {
+export class ApiError extends Error {
+  status: number;
+}
+
+export async function api<T = any>(path: string, options: RequestInit = {}): Promise<T> {
   const r = await fetch("/api" + path, {
     ...options,
     headers: {
@@ -10,7 +14,7 @@ export async function api(path, options = {}) {
   });
   if (!r.ok) {
     const data = await r.json().catch(() => ({}));
-    const e = new Error(
+    const e = new ApiError(
       data.error || "Die Anfrage ist fehlgeschlagen. Bitte erneut versuchen.",
     );
     e.status = r.status;

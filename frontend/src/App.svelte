@@ -1,6 +1,6 @@
-<script>
+<script lang="ts">
   import { onMount, tick } from "svelte";
-  import { api } from "./api.js";
+  import { api } from "./api.ts";
   import Status from "./Status.svelte";
   import Icon from "./Icon.svelte";
   import Attendance from "./Attendance.svelte";
@@ -11,7 +11,7 @@
   import Conferences from "./Conferences.svelte";
   import Teaching from "./Teaching.svelte";
   import Tasks from "./Tasks.svelte";
-  import { readRoute, workspaceUrl, workAreas } from "./navigation.js";
+  import { readRoute, workspaceUrl, workAreas } from "./navigation.ts";
   let feature = $state("dashboard");
   let routePupil = $state(""),
     routeLesson = $state(""),
@@ -19,44 +19,6 @@
     noteContext = $state(null),
     teachingView = $state(null);
   let globalSearch = $state("");
-  const searchResults = $derived(
-    globalSearch.trim()
-      ? [
-          ...classrooms
-            .filter((c) =>
-              c.name
-                .toLocaleLowerCase("de")
-                .includes(globalSearch.toLocaleLowerCase("de")),
-            )
-            .map((c) => ({
-              label: `Klasse ${c.name}`,
-              area: "students",
-              classId: c.id,
-            })),
-          ...students
-            .filter((s) =>
-              s.name
-                .toLocaleLowerCase("de")
-                .includes(globalSearch.toLocaleLowerCase("de")),
-            )
-            .map((s) => ({
-              label: s.name,
-              area: "students",
-              classId,
-              pupilName: s.name,
-            })),
-          ...workAreas
-            .filter(
-              (a) =>
-                !a.hidden &&
-                a.label
-                  .toLocaleLowerCase("de")
-                  .includes(globalSearch.toLocaleLowerCase("de")),
-            )
-            .map((a) => ({ label: a.label, area: a.id, classId })),
-        ].slice(0, 8)
-      : [],
-  );
   let homeworkTab = $state("open"),
     homeworkSubject = $state("");
   let teacher = $state(null),
@@ -751,6 +713,44 @@
       busy = false;
     }
   }
+  const searchResults = $derived(
+    globalSearch.trim()
+      ? [
+          ...classrooms
+            .filter((c) =>
+              c.name
+                .toLocaleLowerCase("de")
+                .includes(globalSearch.toLocaleLowerCase("de")),
+            )
+            .map((c) => ({
+              label: `Klasse ${c.name}`,
+              area: "students",
+              classId: c.id,
+            })),
+          ...students
+            .filter((s) =>
+              s.name
+                .toLocaleLowerCase("de")
+                .includes(globalSearch.toLocaleLowerCase("de")),
+            )
+            .map((s) => ({
+              label: s.name,
+              area: "students",
+              classId,
+              pupilName: s.name,
+            })),
+          ...workAreas
+            .filter(
+              (a) =>
+                !a.hidden &&
+                a.label
+                  .toLocaleLowerCase("de")
+                  .includes(globalSearch.toLocaleLowerCase("de")),
+            )
+            .map((a) => ({ label: a.label, area: a.id, classId })),
+        ].slice(0, 8)
+      : [],
+  );
 </script>
 
 <svelte:window onkeydown={quickNote} />
@@ -1489,7 +1489,7 @@
                       {/each}{#if !filtered.length}<div class="empty-panel">
                           <h3>Keine passende Kompetenz</h3>
                           <p>Ändere die Suche oder die Entwicklungsstufe.</p>
-                          <button class="secondary" onclick={resetFilters}
+                          <button class="secondary" onclick={() => resetFilters()}
                             >Filter zurücksetzen</button
                           >
                         </div>{/if}
@@ -1729,7 +1729,7 @@
                           </div>{/each}
                       </div>{:else}<div class="empty-panel">
                         <h3>Keine passende Kompetenz</h3>
-                        <button class="secondary" onclick={resetFilters}
+                        <button class="secondary" onclick={() => resetFilters()}
                           >Filter zurücksetzen</button
                         >
                       </div>{/if}

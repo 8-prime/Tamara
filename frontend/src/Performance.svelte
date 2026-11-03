@@ -1,8 +1,8 @@
-<script>
+<script lang="ts">
   import { onMount } from "svelte";
-  import { api } from "./api.js";
+  import { api } from "./api.ts";
   import Icon from "./Icon.svelte";
-  import { initials, dateLabel } from "./teaching.js";
+  import { initials, dateLabel } from "./teaching.ts";
   let {
     lesson,
     saving = $bindable(false),

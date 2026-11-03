@@ -1,12 +1,12 @@
-<script>
+<script lang="ts">
   import { untrack } from "svelte";
-  import { api } from "./api.js";
+  import { api } from "./api.ts";
   import Icon from "./Icon.svelte";
-  import { dateLabel, initials, subjectStyle } from "./teaching.js";
+  import { dateLabel, initials, subjectStyle } from "./teaching.ts";
   import {
     performanceLessons,
     pupilPerformances,
-  } from "./performance-history.js";
+  } from "./performance-history.ts";
   let {
     classId,
     className,
@@ -31,7 +31,7 @@
   let selectedId = $state(untrack(() => lessonId));
   const subjects = $derived(
     [
-      ...new Map(
+      ...new Map<string, { id: string; name: string }>(
         lessons.map((l) => [
           l.subject_id,
           { id: l.subject_id, name: l.subject_name },

@@ -1,11 +1,11 @@
-<script>
+<script lang="ts">
   import DevelopmentChart from "./DevelopmentChart.svelte";
-  import { dateLabel } from "./teaching.js";
+  import { dateLabel } from "./teaching.ts";
   import {
     filterPupilHistory,
     classLessonAverages,
     classPupilSummaries,
-  } from "./pupil-history.js";
+  } from "./pupil-history.ts";
   let { students, data, today, onselect } = $props();
   let subject = $state(""),
     from = $state(""),

@@ -1,7 +1,7 @@
-<script>
+<script lang="ts">
   import { onMount } from 'svelte';
-  import { api } from './api.js';
-  import { titleOf, snapshots, records, persist, forget } from './conference-store.js';
+  import { api } from './api.ts';
+  import { titleOf, snapshots, records, persist, forget } from './conference-store.ts';
   let { accountId, classrooms, onerror } = $props();
   let entries = $state([]), selected = $state(''), loading = $state(true);
   let error = $state(''), localError = $state(''), status = $state(''), historyOpen = $state(false), preview = $state(null);

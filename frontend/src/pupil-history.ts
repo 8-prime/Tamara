@@ -1,4 +1,4 @@
-export function recentMissing(homework, today) {
+export function recentMissing<T extends { handed_in_at?: string | number | null; due_date: string }>(homework: T[], today: string) {
   const start = new Date(`${today}T12:00:00Z`);
   start.setUTCDate(start.getUTCDate() - 14);
   const from = start.toISOString().slice(0, 10);
@@ -8,14 +8,14 @@ export function recentMissing(homework, today) {
   );
 }
 
-export function performancePoints(records) {
+export function performancePoints<T extends { date: string; time: string; lesson_id: string; rating: number; subject_id?: string; subject_name?: string; count?: number; observation?: string }>(records: T[]) {
   const ordered = records.toSorted(
     (a, b) =>
       (a.date + a.time).localeCompare(b.date + b.time) ||
       a.lesson_id.localeCompare(b.lesson_id),
   );
   if (!ordered.length) return [];
-  const timestamp = (record) => Date.parse(`${record.date}T${record.time}:00Z`);
+  const timestamp = (record: T) => Date.parse(`${record.date}T${record.time}:00Z`);
   const first = timestamp(ordered[0]);
   const span = timestamp(ordered.at(-1)) - first;
   return ordered.map((record) => ({
@@ -25,8 +25,8 @@ export function performancePoints(records) {
   }));
 }
 
-export function filterPupilHistory(
-  records,
+export function filterPupilHistory<T extends { date?: string; due_date?: string; subject_id: string }>(
+  records: T[],
   { subject = "", from = "", until = "" } = {},
 ) {
   return records.filter((record) => {
