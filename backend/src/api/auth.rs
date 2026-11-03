@@ -46,12 +46,11 @@ fn cookie(h: &HeaderMap) -> Option<String> {
         })
 }
 
-fn session_response(session: Session, secure: bool) -> Result<Response> {
+fn session_response(session: Session) -> Result<Response> {
     let mut response = Json(session.teacher).into_response();
     let cookie = format!(
-        "tamara_session={}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800{}",
-        session.token,
-        if secure { "; Secure" } else { "" }
+        "tamara_session={}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800; Secure",
+        session.token
     );
     response.headers_mut().insert(
         header::SET_COOKIE,
@@ -64,13 +63,13 @@ pub(super) async fn register(
     State(s): State<AppState>,
     Json(c): Json<Credentials>,
 ) -> Result<Response> {
-    session_response(s.auth.register(&s.db, c).await?, s.secure_cookie)
+    session_response(s.auth.register(&s.db, c).await?)
 }
 pub(super) async fn login(
     State(s): State<AppState>,
     Json(c): Json<Credentials>,
 ) -> Result<Response> {
-    session_response(s.auth.login(&s.db, c).await?, s.secure_cookie)
+    session_response(s.auth.login(&s.db, c).await?)
 }
 pub(super) async fn auth_status(State(s): State<AppState>) -> Result<Json<Value>> {
     Ok(Json(
@@ -85,7 +84,9 @@ pub(super) async fn logout(State(s): State<AppState>, h: HeaderMap) -> Result<Re
     let mut response = StatusCode::NO_CONTENT.into_response();
     response.headers_mut().insert(
         header::SET_COOKIE,
-        HeaderValue::from_static("tamara_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"),
+        HeaderValue::from_static(
+            "tamara_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0; Secure",
+        ),
     );
     Ok(response)
 }

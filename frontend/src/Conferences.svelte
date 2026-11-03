@@ -4,13 +4,14 @@
   import type { Classroom, Conference, ErrorHandler } from "./models.ts";
   import { onMount } from 'svelte';
   import { api, errorMessage, errorStatus } from './api.ts';
-  import { titleOf, snapshots, records, persist, forget } from './conference-store.ts';
+  import { titleOf, snapshots, records, persist, forget, memoryGeneration } from './conference-store.ts';
   interface Props {
     accountId: string;
     classrooms: Classroom[];
     onerror: ErrorHandler;
   }
   let { accountId, classrooms, onerror }: Props = $props();
+  const generation = memoryGeneration();
   let entries = $state<Conference[]>([]), selected = $state(''), loading = $state(true);
   let error = $state(''), localError = $state(''), status = $state(''), historyOpen = $state(false), preview = $state<Snapshot<Conference> | null>(null);
   let histories = $state<Record<string, Snapshot<Conference>[]>>({});
@@ -20,8 +21,8 @@
   function localWrite(note: Conference, history: Snapshot<Conference>[], dirty: boolean) {
     note = $state.snapshot(note);
     history = $state.snapshot(history);
-    queue = queue.catch(() => {}).then(() => persist(accountId, note, history, dirty)).catch(() => {
-      localError = 'Browserspeicher nicht verfügbar. Bitte vor dem Schließen auf „Gespeichert“ warten.';
+    queue = queue.catch(() => {}).then(() => persist(accountId, note, history, dirty, generation)).catch(() => {
+      localError = 'Entwurf im Arbeitsspeicher nicht verfügbar. Bitte vor dem Schließen auf „Gespeichert“ warten.';
     });
     return queue;
   }
@@ -69,7 +70,7 @@
     change({}, true);
   }
   async function remove() {
-    if (!confirm('Diese Konferenz und ihren lokalen Verlauf löschen?')) return;
+    if (!confirm('Diese Konferenz und ihren Verlauf dieser Sitzung löschen?')) return;
     const id = selected;
     clearTimeout(timer);
     await flush();
@@ -94,7 +95,7 @@
   onMount(() => {
     (async () => {
       let local: Awaited<ReturnType<typeof records>> = [];
-      try { local = await records(accountId); } catch { localError = 'Lokale Wiederherstellung ist in diesem Browser nicht verfügbar.'; }
+      try { local = await records(accountId); } catch { localError = 'Entwurf konnte nicht wiederhergestellt werden.'; }
       try { entries = await api(ConferenceSchema.array(), '/conferences'); }
       catch(e) { error = errorMessage(e); entries = local.map(x => x.note); if(errorStatus(e) === 401) onerror(e); }
       for (const row of local) {
@@ -107,7 +108,7 @@
       }
       selected = [...entries].sort((a,b) => b.date.localeCompare(a.date))[0]?.id || '';
       loading = false;
-      if (pending.size) { status = 'Lokale Änderungen wiederhergestellt'; flush(); }
+      if (pending.size) { status = 'Änderungen dieser Sitzung wiederhergestellt'; flush(); }
     })();
     return () => { disposed = true; clearTimeout(timer); flush(); };
   });

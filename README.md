@@ -172,13 +172,16 @@ Review the generated labels, levels, and rendered cross positions before changin
 | `DATABASE_URL` | `sqlite:data/tamara.sqlite` | SQLite file; foreign keys, WAL and a busy timeout are enabled. |
 | `TAMARA_BIND` | `127.0.0.1:3000` | HTTP bind address. |
 | `TAMARA_SETUP_TOKEN` | Generated and printed on first run | Initial admin setup only; at least 24 characters. |
-| `TAMARA_SECURE_COOKIES` | `false` | Set to `true` behind HTTPS. |
 | `TAMARA_FRONTEND_DIR` | `frontend/dist` | Built frontend directory. |
 | `RUST_LOG` | `tamara=info,tower_http=info` | Logging filter. |
 
-Passwords use Argon2id. Sessions use random opaque tokens, stored hashed, with HttpOnly/SameSite=Strict cookies and seven-day expiry. State-changing API calls require `X-Tamara-Request: 1`; there is no cross-origin API access. Sharing checks also guard PDF exports. Bulk grading and period copies are transactional; invitation redemption is serialized with an immediate transaction. Login attempts are throttled per email in memory.
+Passwords use Argon2id. Sessions use random opaque tokens, stored hashed, with Secure/HttpOnly/SameSite=Strict cookies and seven-day expiry. State-changing API calls require `X-Tamara-Request: 1`; there is no cross-origin API access. Sharing checks also guard PDF exports. Bulk grading and period copies are transactional; invitation redemption is serialized with an immediate transaction. Login attempts are throttled per email in memory.
 
-For deployment, use HTTPS, secure cookies, a private terminal/log for initial setup, and persistent storage for the SQLite database. Password reset, email delivery, moving students between classes, and live synchronization between browsers are outside this first version. Concurrent edits to the same assessment use the last saved value; reloading a classroom retrieves other teachers' changes.
+For deployment, use HTTPS (mandatory for remote deployments), a private terminal/log for initial setup, and persistent storage for the SQLite database. Password reset, email delivery, moving students between classes, and live synchronization between browsers are outside this first version. Concurrent edits to the same assessment use the last saved value; reloading a classroom retrieves other teachers' changes.
+
+Session cookies always use `Secure`, including logout; `TAMARA_SECURE_COOKIES` is no longer used. Terminate HTTPS at your reverse proxy and keep the HTTP backend private. Local HTTP development relies on the browser’s localhost exception for Secure cookies.
+
+Conference drafts and revision history are held only in memory for the current session and cleared on logout/session expiry. Closing or reloading the page discards unsubmitted changes. Startup deletes the legacy `tamara-conferences` IndexedDB database without reading it; close older tabs if they block deletion.
 
 ## Database backups
 

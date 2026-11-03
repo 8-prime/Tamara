@@ -231,14 +231,13 @@ impl Database {
                 return Err(bad("Bitte eine Abgabe, Qualität oder Notiz angeben."));
             }
             let note = ch.note.as_deref().map(str::trim);
-            if let Some(note) = note {
-                if note.chars().count() > 10000
+            if let Some(note) = note
+                && (note.chars().count() > 10000
                     || note
                         .chars()
-                        .any(|c| c.is_control() && c != '\n' && c != '\r' && c != '\t')
-                {
-                    return Err(bad("Die Notiz darf höchstens 10000 Zeichen enthalten."));
-                }
+                        .any(|c| c.is_control() && c != '\n' && c != '\r' && c != '\t'))
+            {
+                return Err(bad("Die Notiz darf höchstens 10000 Zeichen enthalten."));
             }
             let quality = ch.quality.as_ref().and_then(|q| q.as_deref());
             if let Some(quality) = quality {

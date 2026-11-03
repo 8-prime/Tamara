@@ -22,6 +22,7 @@
   } from "./models.ts";
   import { onMount, tick } from "svelte";
   import { api, errorMessage, errorStatus } from "./api.ts";
+  import { clearMemory, removeLegacyStorage } from "./conference-store.ts";
   import Status from "./Status.svelte";
   import Icon from "./Icon.svelte";
   import Attendance from "./Attendance.svelte";
@@ -192,6 +193,7 @@
   function fail(e: unknown) {
     error = errorMessage(e);
     if (errorStatus(e) === 401) {
+      clearMemory();
       teacher = null;
       workspace = null;
       classrooms = [];
@@ -206,6 +208,7 @@
   }
   onMount(async () => {
     try {
+      await removeLegacyStorage();
       const status = await api(AuthStatusSchema, "/auth/status");
       setupRequired = status.setup_required;
       if (setupRequired) authMode = "register";
@@ -433,6 +436,7 @@
     busy = true;
     try {
       await api("/auth/logout", { method: "POST" });
+      clearMemory();
       teacher = null;
       workspace = null;
       classrooms = [];

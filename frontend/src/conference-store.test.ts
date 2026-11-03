@@ -15,3 +15,19 @@ test('history is bounded, expires, throttles, and preserves forced restore point
   assert.equal(snapshots(h,{content:'restore'},29*31000+100,true).at(-1)?.note.content,'restore');
   assert.equal(snapshots(h,{content:'later'},9*86400000).length,1);
 });
+
+test('drafts are isolated, copied, and cannot be repopulated after logout', async () => {
+  const {persist, records, clearMemory, memoryGeneration, forget} = await import('./conference-store.ts');
+  clearMemory();
+  const generation = memoryGeneration();
+  const note = {id:'n', date:'2026-11-03', title:null, classroom_id:null, content:'private', updated_at:1};
+  await persist('a', note, [], true, generation);
+  note.content = 'changed';
+  assert.equal((await records('a'))[0]?.note.content, 'private');
+  assert.deepEqual(await records('b'), []);
+  await forget('a', 'n');
+  assert.deepEqual(await records('a'), []);
+  clearMemory();
+  await persist('a', note, [], true, generation);
+  assert.deepEqual(await records('a'), []);
+});

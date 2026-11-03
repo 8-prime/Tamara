@@ -70,6 +70,10 @@ impl Client {
             .unwrap();
         let response = self.app.clone().oneshot(req).await.unwrap();
         if let Some(cookie) = response.headers().get(header::SET_COOKIE) {
+            let attributes = cookie.to_str().unwrap();
+            assert!(attributes.contains("; Secure"));
+            assert!(attributes.contains("; HttpOnly"));
+            assert!(attributes.contains("; SameSite=Strict"));
             self.cookie = cookie.to_str().unwrap().split(';').next().unwrap().into();
         }
         let actual = response.status().as_u16();
@@ -113,7 +117,6 @@ async fn fixture_database(db: SqlitePool) -> (Router, SqlitePool) {
     let state = AppState {
         db: Database::new(db.clone()),
         backups: None,
-        secure_cookie: true,
         auth: Auth::new(Some(hash("fixture-setup-token-at-least-24-characters"))),
     };
     (routes(state), db)
@@ -146,7 +149,6 @@ async fn only_admins_can_create_backups_and_archives_are_not_exposed() {
                 Database::new(db.clone()),
                 &root.join("database.sqlite"),
             ))),
-            secure_cookie: true,
             auth: Auth::new(Some(hash("fixture-setup-token-at-least-24-characters"))),
         },
         &dist,
@@ -680,7 +682,6 @@ async fn serves_frontend_and_api_from_the_same_router() {
         AppState {
             db: Database::new(db),
             backups: None,
-            secure_cookie: false,
             auth: Auth::new(Some(hash("fixture-setup-token-at-least-24-characters"))),
         },
         &dist,
@@ -1358,7 +1359,6 @@ async fn attendance_is_daily_shared_atomic_and_independent_of_periods() {
     let state = AppState {
         db: Database::new(db.clone()),
         backups: None,
-        secure_cookie: true,
         auth: Auth::new(None),
     };
     let mut reloaded = Client::new(routes(state));
