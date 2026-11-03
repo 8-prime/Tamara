@@ -8,6 +8,7 @@ mod error;
 mod exports;
 mod homework;
 mod notes;
+mod pupil_history;
 mod teaching;
 
 use crate::{
@@ -54,6 +55,10 @@ pub(crate) fn routes(s: AppState) -> Router {
 
 pub(crate) fn routes_with_frontend(s: AppState, dist: &std::path::Path) -> Router {
     let api = Router::new()
+        .route(
+            "/classrooms/{class}/pupil-history",
+            get(pupil_history::history),
+        )
         .route("/auth/status", get(auth::auth_status))
         .route("/auth/register", post(auth::register))
         .route("/auth/login", post(auth::login))
