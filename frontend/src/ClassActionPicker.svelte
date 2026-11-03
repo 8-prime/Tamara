@@ -1,16 +1,23 @@
 <script lang="ts">
+  import type { Classroom } from "./models.ts";
   import { onMount } from "svelte";
   import Icon from "./Icon.svelte";
-  let { classrooms, action, onchoose, onclose } = $props();
-  let dialog = $state(null);
-  const actionLabels = {
+  interface Props {
+    classrooms: Classroom[];
+    action: string;
+    onchoose: (classroom: Classroom) => void;
+    onclose: () => void;
+  }
+  let { classrooms, action, onchoose, onclose }: Props = $props();
+  let dialog = $state<HTMLDialogElement | undefined>();
+  const actionLabels: Record<string, string | undefined> = {
     attendance: "Anwesenheit erfassen",
     note: "Notiz erfassen",
     materials: "Material finden & teilen",
   };
-  onMount(() => dialog.showModal());
-  function choose(classroom) {
-    dialog.close();
+  onMount(() => dialog?.showModal());
+  function choose(classroom: Classroom) {
+    dialog?.close();
     onchoose(classroom);
   }
 </script>
@@ -27,7 +34,7 @@
       <button
         class="icon-button"
         aria-label="Dialog schließen"
-        onclick={() => dialog.close()}><Icon name="close" /></button
+        onclick={() => dialog?.close()}><Icon name="close" /></button
       >
     </div>
     <p>{actionLabels[action]}: Für welche Klasse?</p>

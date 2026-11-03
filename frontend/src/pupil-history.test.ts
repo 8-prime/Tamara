@@ -32,8 +32,8 @@ test("chart positions preserve date gaps, rating scale and chronological order",
       [660, 30],
     ],
   );
-  assert.equal(records[0].lesson_id, "c");
-  assert.equal(performancePoints([records[0]])[0].x, 360);
+  assert.equal(records[0]?.lesson_id, "c");
+  assert.equal(performancePoints(records.slice(0, 1))[0]?.x, 360);
   assert.deepEqual(performancePoints([]), []);
 });
 
@@ -73,7 +73,7 @@ test("class averages group by lesson without filling in missing ratings", async 
       ["two", 3, 1],
     ],
   );
-  assert.equal(lessons[0].subject_id, "math");
+  assert.equal(lessons[0]?.subject_id, "math");
   assert.deepEqual(classLessonAverages([]), []);
 });
 

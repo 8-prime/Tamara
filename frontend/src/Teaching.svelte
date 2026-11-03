@@ -1,6 +1,16 @@
 <script lang="ts">
+  import { ClassTaskSchema, HomeworkSchema, LessonSchema } from "./models.ts";
+  import type {
+    LessonContext,
+    Teacher,
+    Classroom,
+    Homework,
+    Lesson,
+    ClassTask,
+    ErrorHandler,
+  } from "./models.ts";
   import { onMount, untrack } from "svelte";
-  import { api } from "./api.ts";
+  import { api, errorMessage, errorStatus } from "./api.ts";
   import Icon from "./Icon.svelte";
   import LessonEditor from "./LessonEditor.svelte";
   import LessonCalendar from "./LessonCalendar.svelte";
@@ -19,6 +29,20 @@
     lessonAction,
     taskDone,
   } from "./teaching.ts";
+  interface Props {
+    view: string;
+    teacher: Teacher;
+    classrooms: Classroom[];
+    classId: string;
+    lessonId?: string;
+    routeDate?: string;
+    saving?: boolean;
+    onaction: (kind: string, lesson: LessonContext | null) => void;
+    onnavigate: (area: string, lesson?: LessonContext | null) => void;
+    onroute: (id: string, date: string) => void;
+    onclasses: () => Promise<void>;
+    onerror: ErrorHandler;
+  }
   let {
     view,
     teacher,
@@ -32,11 +56,11 @@
     onroute,
     onclasses,
     onerror,
-  } = $props();
-  let lessons = $state([]),
-    tasks = $state([]),
-    worksheets = $state([]),
-    homework = $state([]);
+  }: Props = $props();
+  let lessons = $state<Lesson[]>([]),
+    tasks = $state<ClassTask[]>([]),
+    worksheets = $state<Homework[]>([]),
+    homework = $state<Homework[]>([]);
   let loading = $state(true),
     error = $state(""),
     notice = $state(""),
@@ -45,8 +69,8 @@
     calendarMode = $state("week"),
     selectedId = $state(untrack(() => lessonId));
   let editor = $state(false),
-    editing = $state(null),
-    performance = $state(null),
+    editing = $state<Lesson | null>(null),
+    performance = $state<Lesson | null>(null),
     materialSearch = $state("");
   let performanceStudent = $state("");
   let quickAction = $state("");
@@ -153,7 +177,7 @@
     homework = [];
     worksheets = [];
     if (id)
-      api(`/classrooms/${id}/homework`)
+      api(HomeworkSchema.array(), `/classrooms/${id}/homework`)
         .then((data) => {
           if (active) {
             homework = data;
@@ -161,7 +185,7 @@
           }
         })
         .catch((e) => {
-          if (active) materialError = e.message;
+          if (active) materialError = errorMessage(e);
         })
         .finally(() => {
           if (active) materialLoading = false;
@@ -184,9 +208,9 @@
       request++;
     };
   });
-  function fail(e) {
-    error = e.message;
-    if (e.status === 401) onerror(e);
+  function fail(e: unknown) {
+    error = errorMessage(e);
+    if (errorStatus(e) === 401) onerror(e);
   }
   async function reload(area = view, id = classId) {
     const version = ++request;
@@ -204,14 +228,14 @@
         : [addDays(dateKey(), 366), addDays(startOfWeek, 6)].sort().at(-1);
       const query = area === "performances" && id ? `&classroom_id=${id}` : "";
       const [list, allTasks] = await Promise.all([
-        api(`/lessons?from=${from}&until=${until}${query}`),
-        api("/tasks"),
+        api(LessonSchema.array(), `/lessons?from=${from}&until=${until}${query}`),
+        api(ClassTaskSchema.array(), "/tasks"),
       ]);
       if (version !== request) return;
       lessons = list;
       tasks = allTasks;
       if (lessonId && !list.some((l) => l.id === lessonId)) {
-        const extra = await api(`/lessons/${lessonId}`);
+        const extra = await api(LessonSchema, `/lessons/${lessonId}`);
         if (version === request)
           lessons = [...list, extra].sort((a, b) =>
             (a.lesson_date + a.starts_at).localeCompare(
@@ -225,13 +249,13 @@
       if (version === request) loading = false;
     }
   }
-  async function selectLesson(lesson) {
+  async function selectLesson(lesson: Lesson) {
     if (saving) return;
     selectedId = lesson.id;
     date = lesson.lesson_date;
     onroute(lesson.id, lesson.lesson_date);
   }
-  async function changeDate(value) {
+  async function changeDate(value: string) {
     if (saving) return;
     date = value;
     selectedId = "";
@@ -240,8 +264,8 @@
   }
   function newLesson(
     day = date,
-    time = null,
-    end = null,
+    time: string | null = null,
+    end: string | null = null,
     preferredClass = classId,
   ) {
     if (saving) return;
@@ -266,7 +290,7 @@
     editing = null;
     editor = true;
   }
-  async function reschedule(lesson, day, start, end) {
+  async function reschedule(lesson: Lesson, day: string, start: string, end: string) {
     if (saving) return;
     error = "";
     notice = "";
@@ -277,7 +301,7 @@
         : l,
     );
     try {
-      const latest = await api(`/lessons/${lesson.id}`);
+      const latest = await api(LessonSchema, `/lessons/${lesson.id}`);
       await api(`/lessons/${lesson.id}`, {
         method: "PATCH",
         body: JSON.stringify({
@@ -290,7 +314,7 @@
           status: latest.status,
         }),
       });
-      const updated = await api(`/lessons/${lesson.id}`);
+      const updated = await api(LessonSchema, `/lessons/${lesson.id}`);
       lessons = lessons.map((l) => (l.id === lesson.id ? updated : l));
       if (selectedId === lesson.id) {
         date = day;
@@ -304,7 +328,7 @@
       saving = false;
     }
   }
-  function act(kind, lesson = current) {
+  function act(kind: string, lesson: Lesson | null = current) {
     if (kind === "create") {
       newLesson(today);
       return;
@@ -340,14 +364,14 @@
     }
     onaction(kind, lesson);
   }
-  function chooseActionClass(classroom) {
+  function chooseActionClass(classroom: Classroom) {
     const kind = quickAction;
     quickAction = "";
     const lesson = { classroom_id: classroom.id, lesson_date: today };
     if (kind === "materials") onnavigate("materials", lesson);
     else onaction(kind, lesson);
   }
-  async function saved(id, day) {
+  async function saved(id: string, day: string) {
     date = day;
     selectedId = id;
     onroute(id, day);
@@ -358,14 +382,14 @@
     performanceStudent = "";
     await reload();
   }
-  async function reviewLesson(lesson) {
+  async function reviewLesson(lesson: Lesson) {
     const refresh = !!performance;
     performance = null;
     performanceStudent = "";
     if (refresh) await reload();
     onnavigate("performances", lesson);
   }
-  async function cancelSeries(lesson) {
+  async function cancelSeries(lesson: Lesson) {
     const from =
       lesson.lesson_date > today ? lesson.lesson_date : addDays(today, 1);
     if (
@@ -387,10 +411,11 @@
       saving = false;
     }
   }
-  async function copyMaterial(h) {
+  async function copyMaterial(h: Homework) {
+    if (!contextClass) return;
     try {
       await navigator.clipboard.writeText(
-        `${window.location.origin}/api/classrooms/${contextClass.id}/homework/${h.id}/worksheet`,
+        `${window.location.origin}/api/classrooms/${contextClass?.id}/homework/${h.id}/worksheet`,
       );
       notice =
         "Materiallink kopiert. Zum Öffnen ist eine Klassenfreigabe erforderlich.";
@@ -401,7 +426,7 @@
   }
 </script>
 
-{#snippet schedule(list)}
+{#snippet schedule(list: Lesson[])}
   <div class="day-schedule">
     {#if !list.length}<div class="empty-panel small-empty">
         <Icon name="calendar" size={28} />
@@ -443,7 +468,7 @@
   </div>
 {/snippet}
 
-{#snippet materialList(items)}
+{#snippet materialList(items: Homework[])}
   {#if materialLoading}<p class="muted">
       Materialien werden geladen …
     </p>{:else if materialError}<p class="alert" role="alert">
@@ -453,9 +478,9 @@
         ? "für dieses Fach"
         : "in dieser Klasse"}. Du kannst sie bei einer Hausaufgabe ergänzen.
     </p>{:else}<ul class="lesson-materials">
-      {#each items as h (h.id)}<li>
+      {#each items as h (h.id)}{#if contextClass}<li>
           <Icon name="note" /><a
-            href={`/api/classrooms/${contextClass.id}/homework/${h.id}/worksheet`}
+            href={`/api/classrooms/${contextClass?.id}/homework/${h.id}/worksheet`}
             target="_blank"
             rel="noreferrer"
             >{h.worksheet_name}<small>{h.subject_name} · {h.title}</small></a
@@ -463,7 +488,7 @@
               class="text-button"
               onclick={() => copyMaterial(h)}>Link kopieren</button
             >{/if}
-        </li>{/each}
+        </li>{/if}{/each}
     </ul>{/if}
 {/snippet}
 
@@ -511,7 +536,7 @@
           </div>
           <h2>{current?.subject_name || "Dein Schultag beginnt hier"}</h2>
           {#if current}<p class="hero-class">
-              Klasse {current.class_name}{#if current.room}
+              Klasse {current?.class_name}{#if current.room}
                 · Raum {current.room}{/if}
             </p>
             {#if current.lesson_date !== today}<p>
@@ -536,10 +561,10 @@
             ><Icon name={action.icon} size={23} /><span>{action.label}</span
             ><Icon name="arrow" /></button
           >
-          {#if currentLive && current?.attendance_count < current?.pupil_count && action.kind !== "attendance"}<button
+          {#if currentLive && current && current.attendance_count < current.pupil_count && action.kind !== "attendance"}<button
               class="text-button attendance-reminder"
               onclick={() => act("attendance")}
-              >Anwesenheit: {current.attendance_count} von {current.pupil_count}
+              >Anwesenheit: {(current?.attendance_count ?? 0)} von {(current?.pupil_count ?? 0)}
               erfasst</button
             >{/if}
         </div>
@@ -1015,7 +1040,7 @@
     studentId={performanceStudent}
     bind:saving
     onclose={closePerformance}
-    onreview={() => reviewLesson(performance)}
+    onreview={() => performance && reviewLesson(performance)}
     {onerror}
   />{/if}
 {#if quickAction}<ClassActionPicker

@@ -1,9 +1,23 @@
 <script lang="ts">
+  import { HistorySchema } from "./models.ts";
+  import type { Student, History, ErrorHandler } from "./models.ts";
   import DevelopmentChart from "./DevelopmentChart.svelte";
   import ClassDevelopment from "./ClassDevelopment.svelte";
-  import { api } from "./api.ts";
+  import { api, errorMessage, errorStatus } from "./api.ts";
   import { dateLabel, initials } from "./teaching.ts";
   import { recentMissing, performancePoints } from "./pupil-history.ts";
+  interface Props {
+    classId: string;
+    students: Student[];
+    pupilId?: string;
+    onselect: (id: string) => void;
+    onrename: (student: Student) => void;
+    ondelete: (student: Student) => void;
+    owner: boolean;
+    disabled: boolean;
+    onerror: ErrorHandler;
+    search?: string;
+  }
   let {
     classId,
     students,
@@ -15,8 +29,8 @@
     disabled,
     onerror,
     search = $bindable(""),
-  } = $props();
-  let data = $state({ performances: [], homework: [] });
+  }: Props = $props();
+  let data = $state<History>({ performances: [], homework: [] });
   let loading = $state(true),
     error = $state(""),
     subject = $state("");
@@ -57,13 +71,13 @@
     let active = true;
     loading = true;
     error = "";
-    api(`/classrooms/${id}/pupil-history`)
+    api(HistorySchema, `/classrooms/${id}/pupil-history`)
       .then((result) => {
         if (active) data = result;
       })
       .catch((e) => {
         if (active) {
-          error = e.message;
+          error = errorMessage(e);
           onerror(e);
         }
       })
@@ -171,7 +185,7 @@
                           class="missing-text">Nicht abgegeben</span
                         >{:else}Noch offen{/if}</td
                     ><td class="observation"
-                      >{qualityLabels[item.quality] ||
+                      >{(item.quality ? qualityLabels[item.quality] : null) ||
                         "Nicht bewertet"}{#if item.note}<small
                           >{item.note}</small
                         >{/if}</td

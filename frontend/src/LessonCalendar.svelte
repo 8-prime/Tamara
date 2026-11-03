@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Lesson } from "./models.ts";
   import { tick } from "svelte";
   import Icon from "./Icon.svelte";
   import { dateKey, dateLabel, subjectStyle } from "./teaching.ts";
@@ -11,6 +12,16 @@
     dayLayout,
   } from "./calendar.ts";
 
+  interface Props {
+    days: string[];
+    lessons: Lesson[];
+    selectedId?: string;
+    saving?: boolean;
+    onselect: (lesson: Lesson) => void;
+    oncreate: (day: string, start: string, end: string) => void;
+    onchange: (lesson: Lesson, day: string, start: string, end: string) => Promise<void>;
+    onedit: (lesson: Lesson) => void;
+  }
   let {
     days,
     lessons,
@@ -20,13 +31,13 @@
     oncreate,
     onchange,
     onedit,
-  } = $props();
-  let columns = $state(null),
-    calendarRoot = $state(null),
-    gesture = $state(null),
-    focusSlot = $state(null),
+  }: Props = $props();
+  let columns = $state<HTMLDivElement | undefined>(),
+    calendarRoot = $state<HTMLDivElement | undefined>(),
+    gesture = $state<{kind: string; lesson: Lesson | null; pointer: number; x: number; y: number; day: string; start: number; end: number; originalStart: number; moved: boolean} | null>(null),
+    focusSlot = $state<{day: string; minute: number} | null>(null),
     suppressClick = false;
-  let captured = null;
+  let captured: HTMLElement | null = null;
   const pixelsPerMinute = 1.2;
   const visibleLessons = $derived(
     lessons.filter((l) => days.includes(l.lesson_date)),
@@ -72,14 +83,7 @@
     })),
   );
 
-  function begin(
-    event,
-    kind,
-    day,
-    start,
-    lesson = null,
-    explicitHandle = false,
-  ) {
+  function begin(event: PointerEvent & {currentTarget: EventTarget & HTMLElement}, kind: string, day: string, start: number, lesson: Lesson | null = null, explicitHandle = false) {
     suppressClick = false;
     if (
       saving ||
@@ -107,13 +111,14 @@
     };
   }
 
-  function move(event) {
+  function move(event: PointerEvent) {
     if (!gesture || gesture.pointer !== event.pointerId) return;
     const distance = Math.hypot(
       event.clientX - gesture.x,
       event.clientY - gesture.y,
     );
     if (!gesture.moved && distance < 5) return;
+    if (!columns) return;
     const rect = columns.getBoundingClientRect();
     const axis = 54;
     const dayIndex = Math.max(
@@ -126,14 +131,14 @@
         ),
       ),
     );
-    if (gesture.kind === "move") {
+    if (gesture.kind === "move" && gesture.lesson) {
       const range = moveRange(
         gesture.originalStart,
         timeMinutes(gesture.lesson.ends_at),
         gesture.originalStart + (event.clientY - gesture.y) / pixelsPerMinute,
       );
-      gesture = { ...gesture, ...range, day: days[dayIndex], moved: true };
-    } else if (gesture.kind === "resize") {
+      gesture = { ...gesture, ...range, day: days[dayIndex] ?? gesture.day, moved: true };
+    } else if (gesture.kind === "resize" && gesture.lesson) {
       const range = resizeRange(
         gesture.originalStart,
         timeMinutes(gesture.lesson.ends_at) +
@@ -170,7 +175,7 @@
     gesture = null;
     suppressClick = true;
   }
-  async function finish(event) {
+  async function finish(event: PointerEvent) {
     if (!gesture || gesture.pointer !== event.pointerId) return;
     const done = gesture;
     releaseCapture();
@@ -179,10 +184,10 @@
     if (!done.moved) return; // Native click remains the keyboard/touch equivalent.
     if (done.kind === "create")
       oncreate(done.day, timeString(done.start), timeString(done.end));
-    else if (
+    else if (done.lesson && (
       done.day !== done.lesson.lesson_date ||
       done.start !== timeMinutes(done.lesson.starts_at) ||
-      done.end !== timeMinutes(done.lesson.ends_at)
+      done.end !== timeMinutes(done.lesson.ends_at))
     ) {
       await onchange(
         done.lesson,
@@ -192,7 +197,7 @@
       );
     }
   }
-  function clickSlot(day, minute) {
+  function clickSlot(day: string, minute: number) {
     if (suppressClick) {
       suppressClick = false;
       return;
@@ -204,7 +209,7 @@
         timeString(Math.min(minute + 45, 1439)),
       );
   }
-  function slotKeyboard(event, day, minute) {
+  function slotKeyboard(event: KeyboardEvent, day: string, minute: number) {
     if (
       !["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)
     )
@@ -226,24 +231,24 @@
           (event.key === "ArrowUp" ? -15 : event.key === "ArrowDown" ? 15 : 0),
       ),
     );
-    focusSlot = { day: days[dayIndex], minute: nextMinute };
-    [...calendarRoot.querySelectorAll("button[data-minute]")]
+    focusSlot = { day: days[dayIndex] ?? day, minute: nextMinute };
+    [...(calendarRoot?.querySelectorAll<HTMLButtonElement>("button[data-minute]") ?? [])]
       .find(
         (el) =>
-          el.dataset.day === focusSlot.day &&
+          el.dataset.day === focusSlot?.day &&
           Number(el.dataset.minute) === nextMinute,
       )
       ?.focus({ preventScroll: false });
   }
-  function clickLesson(lesson) {
+  function clickLesson(lesson: Lesson) {
     if (suppressClick) {
       suppressClick = false;
       return;
     }
     if (!saving) onselect(lesson);
   }
-  async function keyboard(event, lesson, kind) {
-    const deltas = { ArrowUp: -15, ArrowDown: 15 };
+  async function keyboard(event: KeyboardEvent, lesson: Lesson, kind: string) {
+    const deltas: Record<string, number | undefined> = { ArrowUp: -15, ArrowDown: 15 };
     if (
       !(event.key in deltas) &&
       !(kind === "move" && ["ArrowLeft", "ArrowRight"].includes(event.key))
@@ -267,13 +272,13 @@
         : moveRange(start, end, start + delta);
     await onchange(lesson, day, timeString(range.start), timeString(range.end));
     await tick();
-    [...calendarRoot.querySelectorAll("button[data-lesson]")]
+    [...(calendarRoot?.querySelectorAll<HTMLButtonElement>("button[data-lesson]") ?? [])]
       .find(
         (el) => el.dataset.lesson === lesson.id && el.dataset.action === kind,
       )
       ?.focus({ preventScroll: true });
   }
-  function position(item) {
+  function position(item: {start: number; end: number; lane: number; lanes: number}) {
     return `top:${(item.start - firstMinute) * pixelsPerMinute}px;height:${Math.max(18, (item.end - item.start) * pixelsPerMinute)}px;left:calc(${(item.lane * 100) / item.lanes}% + 3px);width:calc(${100 / item.lanes}% - 6px)`;
   }
 </script>

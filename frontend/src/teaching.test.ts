@@ -57,9 +57,9 @@ test("dashboard skips finished and cancelled lessons and finds the next day", ()
       status: "cancelled",
     },
   ];
-  assert.equal(currentOrNext(list, new Date("2026-10-29T09:55")).id, "one");
+  assert.equal(currentOrNext(list, new Date("2026-10-29T09:55"))?.id, "one");
   assert.equal(
-    currentOrNext(list, new Date("2026-10-29T10:35")).id,
+    currentOrNext(list, new Date("2026-10-29T10:35"))?.id,
     "tomorrow",
   );
   assert.equal(currentOrNext(list, new Date("2026-10-31T10:35")), null);

@@ -14,10 +14,11 @@ export function performancePoints<T extends { date: string; time: string; lesson
       (a.date + a.time).localeCompare(b.date + b.time) ||
       a.lesson_id.localeCompare(b.lesson_id),
   );
-  if (!ordered.length) return [];
+  const firstRecord = ordered[0], lastRecord = ordered.at(-1);
+  if (!firstRecord || !lastRecord) return [];
   const timestamp = (record: T) => Date.parse(`${record.date}T${record.time}:00Z`);
-  const first = timestamp(ordered[0]);
-  const span = timestamp(ordered.at(-1)) - first;
+  const first = timestamp(firstRecord);
+  const span = timestamp(lastRecord) - first;
   return ordered.map((record) => ({
     ...record,
     x: span ? 60 + ((timestamp(record) - first) / span) * 600 : 360,
@@ -33,15 +34,15 @@ export function filterPupilHistory<T extends { date?: string; due_date?: string;
     const date = record.date || record.due_date;
     return (
       (!subject || record.subject_id === subject) &&
-      (!from || date >= from) &&
-      (!until || date <= until)
+      (!from || (date !== undefined && date >= from)) &&
+      (!until || (date !== undefined && date <= until))
     );
   });
 }
 
 // Each point describes one lesson; unrated children never count as zero.
-export function classLessonAverages(records) {
-  const lessons = new Map();
+export function classLessonAverages<T extends {lesson_id: string; rating: number}>(records: T[]) {
+  const lessons = new Map<string, T & {count: number; total: number; observation: string}>();
   for (const record of records) {
     let lesson = lessons.get(record.lesson_id);
     if (!lesson) {
@@ -57,7 +58,7 @@ export function classLessonAverages(records) {
   }));
 }
 
-export function classPupilSummaries(students, performances, homework, today) {
+export function classPupilSummaries<S extends {id: string}, P extends {student_id: string; date: string; rating: number}, H extends {student_id: string; due_date: string; handed_in_at?: number | string | null}>(students: S[], performances: P[], homework: H[], today: string) {
   return students.map((student) => {
     const records = performances.filter((r) => r.student_id === student.id);
     const assignments = homework.filter((r) => r.student_id === student.id);

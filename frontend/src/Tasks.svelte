@@ -1,25 +1,34 @@
 <script lang="ts">
+  import { ClassTaskSchema, LessonSchema, TaskDetailSchema } from "./models.ts";
+  import type { Lesson, ClassTask, TaskPupil, ErrorHandler } from "./models.ts";
   import { onMount, tick } from "svelte";
-  import { api } from "./api.ts";
+  import { api, errorMessage, errorStatus } from "./api.ts";
   import Icon from "./Icon.svelte";
   import { dateKey, dateLabel, taskDone, addDays } from "./teaching.ts";
+  interface Props {
+    classId: string;
+    lessonId?: string;
+    compact?: boolean;
+    saving?: boolean;
+    onerror?: ErrorHandler;
+  }
   let {
     classId,
     lessonId = "",
     compact = false,
     saving = $bindable(false),
     onerror = () => {},
-  } = $props();
-  let entries = $state([]),
-    pupils = $state([]),
-    lessons = $state([]),
-    selected = $state(null);
+  }: Props = $props();
+  let entries = $state<ClassTask[]>([]),
+    pupils = $state<TaskPupil[]>([]),
+    lessons = $state<Lesson[]>([]),
+    selected = $state<ClassTask | null>(null);
   let loading = $state(true),
     error = $state(""),
     tab = $state("open"),
     modal = $state(false),
-    dialog = $state(null);
-  let editing = $state(null),
+    dialog = $state<HTMLDialogElement | undefined>();
+  let editing = $state<ClassTask | null>(null),
     title = $state(""),
     description = $state(""),
     mode = $state("once"),
@@ -33,22 +42,22 @@
         (tab === "history" ? taskDone(t) : !taskDone(t)),
     ),
   );
-  function fail(e) {
-    error = e.message;
-    if (e.status === 401) onerror(e);
+  function fail(e: unknown) {
+    error = errorMessage(e);
+    if (errorStatus(e) === 401) onerror(e);
   }
   onMount(reload);
   async function reload() {
     loading = true;
     try {
-      entries = await api(`/classrooms/${classId}/tasks`);
+      entries = await api(ClassTaskSchema.array(), `/classrooms/${classId}/tasks`);
       const today = dateKey();
-      lessons = await api(
+      lessons = await api(LessonSchema.array(),
         `/lessons?from=${addDays(today, -365)}&until=${addDays(today, 366)}&classroom_id=${classId}`,
       );
       if (lessonId && !lessons.some((l) => l.id === lessonId))
-        lessons = [await api(`/lessons/${lessonId}`), ...lessons];
-      if (selected) await select(entries.find((t) => t.id === selected.id));
+        lessons = [await api(LessonSchema, `/lessons/${lessonId}`), ...lessons];
+      if (selected) await select(entries.find((t) => t.id === selected?.id));
     } catch (e) {
       fail(e);
     } finally {
@@ -58,7 +67,7 @@
   export async function openNew() {
     await edit(null);
   }
-  async function edit(task) {
+  async function edit(task: ClassTask | null) {
     editing = task;
     title = task?.title || "";
     description = task?.description || "";
@@ -69,27 +78,27 @@
     deleting = false;
     modal = true;
     await tick();
-    dialog.showModal();
+    dialog?.showModal();
   }
   function close() {
     if (!saving) {
-      dialog.close();
+      dialog?.close();
       modal = false;
     }
   }
-  async function select(task) {
-    selected = task;
+  async function select(task: ClassTask | null | undefined) {
+    selected = task ?? null;
     pupils = [];
     if (task?.completion_mode === "per_pupil") {
       try {
-        const result = await api(`/classrooms/${classId}/tasks/${task.id}`);
+        const result = await api(TaskDetailSchema, `/classrooms/${classId}/tasks/${task.id}`);
         if (selected?.id === task.id) pupils = result.pupils;
       } catch (e) {
         fail(e);
       }
     }
   }
-  async function save(event) {
+  async function save(event: SubmitEvent) {
     event.preventDefault();
     saving = true;
     error = "";
@@ -116,7 +125,8 @@
       saving = false;
     }
   }
-  async function complete(task, completed, studentId = null) {
+  async function complete(task: ClassTask | null, completed: boolean, studentId: string | null = null) {
+    if (!task) return;
     saving = true;
     error = "";
     try {
@@ -132,6 +142,7 @@
     }
   }
   async function remove() {
+    if (!editing) return;
     saving = true;
     try {
       await api(`/classrooms/${classId}/tasks/${editing.id}`, {

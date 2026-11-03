@@ -1,3 +1,4 @@
+import type { Lesson, ClassTask } from "./models.ts";
 export function dateKey(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
@@ -32,7 +33,7 @@ export function subjectStyle(name = "") {
   if (/religion|förder|rat/i.test(name)) return "purple";
   return "green";
 }
-export function currentOrNext(lessons, now = new Date()) {
+export function currentOrNext<T extends Pick<Lesson, "status" | "lesson_date" | "starts_at" | "ends_at">>(lessons: T[], now = new Date()) {
   const active = lessons
     .filter((l) => l.status === "scheduled")
     .toSorted((a, b) =>
@@ -42,7 +43,7 @@ export function currentOrNext(lessons, now = new Date()) {
     active.find((l) => new Date(`${l.lesson_date}T${l.ends_at}`) > now) || null
   );
 }
-export function lessonAction(lesson, now = new Date()) {
+export function lessonAction(lesson: Pick<Lesson, "lesson_date" | "starts_at" | "ends_at" | "performance_count" | "pupil_count" | "attendance_count" | "class_name"> | null | undefined, now = new Date()) {
   if (!lesson)
     return { kind: "create", label: "Stundenplan ergänzen", icon: "calendar" };
   const start = new Date(`${lesson.lesson_date}T${lesson.starts_at}`);
@@ -81,8 +82,8 @@ export function lessonAction(lesson, now = new Date()) {
     };
   return { kind: "note", label: "Notiz zur Stunde erfassen", icon: "note" };
 }
-export function taskDone(task) {
+export function taskDone(task: {completion_mode: string; completed_at?: number | null; assigned_count?: number; completed_count?: number}) {
   return task.completion_mode === "once"
     ? !!task.completed_at
-    : task.assigned_count > 0 && task.completed_count >= task.assigned_count;
+    : (task.assigned_count ?? 0) > 0 && (task.completed_count ?? 0) >= (task.assigned_count ?? 0);
 }

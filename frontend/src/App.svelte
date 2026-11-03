@@ -1,6 +1,27 @@
 <script lang="ts">
+  import {
+    AuthStatusSchema,
+    CatalogSchema,
+    ClassroomSchema,
+    IdSchema,
+    InvitationResultSchema,
+    InvitationSchema,
+    LessonSchema,
+    TeacherSchema,
+    WorkspaceSchema,
+  } from "./models.ts";
+  import type {
+    LessonContext,
+    Assessment,
+    Teacher,
+    Invitation,
+    Classroom,
+    Lesson,
+    Criterion,
+    Workspace,
+  } from "./models.ts";
   import { onMount, tick } from "svelte";
-  import { api } from "./api.ts";
+  import { api, errorMessage, errorStatus } from "./api.ts";
   import Status from "./Status.svelte";
   import Icon from "./Icon.svelte";
   import Attendance from "./Attendance.svelte";
@@ -16,17 +37,17 @@
   let routePupil = $state(""),
     routeLesson = $state(""),
     routeDate = $state(""),
-    noteContext = $state(null),
-    teachingView = $state(null);
+    noteContext = $state<LessonContext | null>(null),
+    teachingView = $state<{noteLesson: () => Lesson | null | undefined; openQuickNote: () => void} | null>(null);
   let globalSearch = $state("");
   let homeworkTab = $state("open"),
     homeworkSubject = $state("");
-  let teacher = $state(null),
+  let teacher = $state<Teacher | null>(null),
     booting = $state(true),
     authMode = $state("login"),
     setupRequired = $state(false),
     registrationToken = $state("");
-  let invitations = $state([]),
+  let invitations = $state<Invitation[]>([]),
     invitationToken = $state("");
   let backupCreated = $state(false);
   let email = $state(""),
@@ -37,10 +58,10 @@
     busy = $state(false),
     loading = $state(false),
     saving = $state(false);
-  let classrooms = $state([]),
+  let classrooms = $state<Classroom[]>([]),
     classId = $state(""),
-    catalog = $state([]),
-    workspace = $state(null);
+    catalog = $state<Criterion[]>([]),
+    workspace = $state<Workspace | null>(null);
   let periodId = $state(""),
     studentId = $state(""),
     mode = $state("student");
@@ -50,11 +71,11 @@
     search = $state(""),
     rosterSearch = $state("");
   let criterionId = $state(""),
-    selected = $state(new Set()),
+    selected = $state<Set<string>>(new Set()),
     matrixPage = $state(0),
     exportingZip = $state(false);
   let modal = $state(""),
-    dialog = $state(null),
+    dialog = $state<HTMLDialogElement | undefined>(),
     fieldName = $state(""),
     fieldYear = $state("2026/27"),
     fieldNames = $state(""),
@@ -62,7 +83,7 @@
     fieldEmail = $state(""),
     targetId = $state("");
   let loadVersion = 0;
-  let notesView = $state(null);
+  let notesView = $state<{openNew: () => Promise<void>} | null>(null);
   const modes = [
     { id: "student", label: "Einzelkind", icon: "◉" },
     { id: "class", label: "Klassenübersicht", icon: "▦" },
@@ -121,7 +142,7 @@
     filtered.find((c) => c.id === criterionId) || filtered[0],
   );
   const grades = $derived.by(() => {
-    const m = {};
+    const m: Record<string, Assessment | undefined> = {};
     for (const a of workspace?.assessments || [])
       m[a.student_id + ":" + a.criterion_id] = a;
     return m;
@@ -145,22 +166,22 @@
     ),
     matrixPages = $derived(Math.max(1, Math.ceil(filtered.length / 8)));
   const editable = $derived(!!periodId && !saving && !loading && !busy);
-  function value(s, c) {
+  function value(s: string, c: string) {
     return grades[s + ":" + c]?.value || null;
   }
-  function achievedOn(s, c) {
+  function achievedOn(s: string, c: string) {
     return grades[s + ":" + c]?.achieved_on || null;
   }
   function today() {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
-  function countFor(s, v = null) {
+  function countFor(s: string, v: string | null = null) {
     return (workspace?.assessments || []).filter(
       (a) => a.student_id === s && (!v || a.value === v),
     ).length;
   }
-  function initials(n) {
+  function initials(n: string) {
     return n
       .split(/\s+/)
       .map((p) => p[0])
@@ -168,9 +189,9 @@
       .join("")
       .toUpperCase();
   }
-  function fail(e) {
-    error = e.message;
-    if (e.status === 401) {
+  function fail(e: unknown) {
+    error = errorMessage(e);
+    if (errorStatus(e) === 401) {
       teacher = null;
       workspace = null;
       classrooms = [];
@@ -185,13 +206,13 @@
   }
   onMount(async () => {
     try {
-      const status = await api("/auth/status");
+      const status = await api(AuthStatusSchema, "/auth/status");
       setupRequired = status.setup_required;
       if (setupRequired) authMode = "register";
-      teacher = await api("/auth/me");
+      teacher = await api(TeacherSchema, "/auth/me");
       await initialize();
     } catch (e) {
-      if (e.status !== 401) error = e.message;
+      if (errorStatus(e) !== 401) error = errorMessage(e);
     } finally {
       booting = false;
     }
@@ -223,7 +244,7 @@
       if (nextClass !== classId) await chooseClass(nextClass, false);
       if (routeLesson && feature === "notes") {
         try {
-          const lesson = await api(`/lessons/${routeLesson}`);
+          const lesson = await api(LessonSchema, `/lessons/${routeLesson}`);
           if (lesson.classroom_id === classId) noteContext = lesson;
         } catch (e) {
           fail(e);
@@ -247,7 +268,7 @@
     if (window.location.pathname + window.location.search !== url)
       window.history[replace ? "replaceState" : "pushState"]({}, "", url);
   }
-  function navigate(area, event = null) {
+  function navigate(area: string, event: MouseEvent | null = null) {
     if (event) {
       if (
         event.button !== 0 ||
@@ -278,13 +299,13 @@
     writeRoute();
   }
   async function refreshClasses() {
-    classrooms = await api("/classrooms");
+    classrooms = await api(ClassroomSchema.array(), "/classrooms");
     if (!classId && classrooms.length) {
-      classId = classrooms[0].id;
+      classId = classrooms[0]?.id ?? "";
       await loadWorkspace("");
     }
   }
-  async function navigateLesson(area, lesson = null) {
+  async function navigateLesson(area: string, lesson: LessonContext | null = null) {
     if (lesson?.classroom_id && lesson.classroom_id !== classId)
       await chooseClass(lesson.classroom_id, false);
     navigate(area);
@@ -292,12 +313,12 @@
     routeDate = lesson?.lesson_date || "";
     writeRoute(true);
   }
-  function updateLessonRoute(id, date) {
+  function updateLessonRoute(id: string, date: string) {
     routeLesson = id;
     routeDate = date;
     writeRoute(true);
   }
-  async function lessonAction(kind, lesson) {
+  async function lessonAction(kind: string, lesson: LessonContext | null) {
     await navigateLesson(kind === "note" ? "notes" : "attendance", lesson);
     noteContext = lesson?.id ? lesson : null;
     if (kind === "note") {
@@ -305,13 +326,13 @@
       notesView?.openNew();
     }
   }
-  async function searchNavigate(result) {
+  async function searchNavigate(result: {classId: string; area: string; pupilName?: string}) {
     globalSearch = "";
     if (result.classId !== classId) await chooseClass(result.classId, false);
     navigate(result.area);
     if (result.area === "students") rosterSearch = result.pupilName || "";
   }
-  async function quickNote(event) {
+  async function quickNote(event: KeyboardEvent) {
     if (
       event.key.toLowerCase() !== "n" ||
       event.repeat ||
@@ -348,13 +369,13 @@
     await tick();
     notesView?.openNew();
   }
-  function homeworkFilters(tab, subject) {
+  function homeworkFilters(tab: string, subject: string) {
     homeworkTab = tab;
     homeworkSubject = subject;
     writeRoute(true);
   }
   async function initialize(preferCurrent = false) {
-    const [c, cat] = await Promise.all([api("/classrooms"), api("/criteria")]);
+    const [c, cat] = await Promise.all([api(ClassroomSchema.array(), "/classrooms"), api(CatalogSchema, "/criteria")]);
     classrooms = c;
     catalog = cat.criteria;
     section ||= cat.criteria[0]?.section || "";
@@ -372,7 +393,7 @@
     if (classId) await loadWorkspace();
     if (routeLesson && feature === "notes") {
       try {
-        const lesson = await api(`/lessons/${routeLesson}`);
+        const lesson = await api(LessonSchema, `/lessons/${routeLesson}`);
         if (lesson.classroom_id === classId) noteContext = lesson;
       } catch (e) {
         fail(e);
@@ -380,12 +401,12 @@
     }
     writeRoute(true);
   }
-  async function authenticate(e) {
+  async function authenticate(e: SubmitEvent) {
     e.preventDefault();
     busy = true;
     error = "";
     try {
-      teacher = await api(
+      teacher = await api(TeacherSchema,
         "/auth/" + (authMode === "login" ? "login" : "register"),
         {
           method: "POST",
@@ -434,7 +455,7 @@
     error = "";
     selected = new Set();
     try {
-      const w = await api(
+      const w = await api(WorkspaceSchema,
         `/classrooms/${classId}/workspace${preferred ? "?period_id=" + preferred : ""}`,
       );
       if (version !== loadVersion) return;
@@ -448,7 +469,7 @@
       if (version === loadVersion) loading = false;
     }
   }
-  async function chooseClass(id, pushRoute = true) {
+  async function chooseClass(id: string, pushRoute = true) {
     if (saving || busy || loading) return;
     classId = id;
     periodId = "";
@@ -465,12 +486,12 @@
     await loadWorkspace("");
     if (pushRoute) writeRoute();
   }
-  async function choosePeriod(e) {
+  async function choosePeriod(e: Event & {currentTarget: HTMLSelectElement}) {
     periodId = e.currentTarget.value;
     await loadWorkspace();
   }
-  async function save(changes) {
-    if (!editable || !changes.length) return;
+  async function save(changes: {student_id: string; criterion_id: string; value: string | null; achieved_on?: string | null}[]) {
+    if (!editable || !changes.length || !workspace || !teacher) return;
     changes = changes.map((c) => ({
       ...c,
       achieved_on:
@@ -486,6 +507,8 @@
         method: "PATCH",
         body: JSON.stringify({ changes }),
       });
+      if (!workspace || !teacher) return;
+      const updatedBy = teacher.id;
       const keys = new Set(
         changes.map((c) => c.student_id + ":" + c.criterion_id),
       );
@@ -495,7 +518,7 @@
           ...workspace.assessments.filter(
             (a) => !keys.has(a.student_id + ":" + a.criterion_id),
           ),
-          ...changes.filter((c) => c.value !== null),
+          ...changes.flatMap((c) => c.value === null ? [] : [{ ...c, value: c.value, achieved_on: c.achieved_on ?? null, updated_by: updatedBy, updated_at: Math.floor(Date.now() / 1000) }]),
         ],
       };
       notice = "Alle Änderungen gespeichert";
@@ -505,17 +528,17 @@
       saving = false;
     }
   }
-  function grade(s, c, v, date = null) {
+  function grade(s: string, c: string, v: string | null, date: string | null = null) {
     return save([
       { student_id: s, criterion_id: c, value: v, achieved_on: date },
     ]);
   }
-  function toggleSelected(id) {
+  function toggleSelected(id: string) {
     const next = new Set(selected);
     next.has(id) ? next.delete(id) : next.add(id);
     selected = next;
   }
-  async function bulk(v) {
+  async function bulk(v: string | null) {
     if (currentCriterion)
       await save(
         [...selected].map((s) => ({
@@ -525,7 +548,7 @@
         })),
       );
   }
-  async function openModal(kind) {
+  async function openModal(kind: string) {
     modal = kind;
     error = "";
     fieldName = "";
@@ -535,10 +558,10 @@
     invitationToken = "";
     backupCreated = false;
     await tick();
-    dialog.showModal();
+    dialog?.showModal();
     if (kind === "invites") {
       try {
-        invitations = await api("/admin/invitations");
+        invitations = await api(InvitationSchema.array(), "/admin/invitations");
       } catch (e) {
         fail(e);
       }
@@ -546,11 +569,11 @@
   }
   function closeModal() {
     if (!busy) {
-      dialog.close();
+      dialog?.close();
       modal = "";
     }
   }
-  async function submitModal(e) {
+  async function submitModal(e: SubmitEvent) {
     e.preventDefault();
     busy = true;
     error = "";
@@ -561,18 +584,18 @@
         return;
       }
       if (modal === "invites") {
-        const r = await api("/admin/invitations", {
+        const r = await api(InvitationResultSchema, "/admin/invitations", {
           method: "POST",
           body: JSON.stringify({ label: fieldName }),
         });
         invitationToken = r.token;
         fieldName = "";
-        invitations = await api("/admin/invitations");
+        invitations = await api(InvitationSchema.array(), "/admin/invitations");
         busy = false;
         return;
       }
       if (modal === "class") {
-        const r = await api("/classrooms", {
+        const r = await api(IdSchema, "/classrooms", {
           method: "POST",
           body: JSON.stringify({ name: fieldName, school_year: fieldYear }),
         });
@@ -591,10 +614,10 @@
               .filter(Boolean),
           }),
         });
-        classrooms = await api("/classrooms");
+        classrooms = await api(ClassroomSchema.array(), "/classrooms");
         await loadWorkspace();
       } else if (modal === "period") {
-        const r = await api(`/classrooms/${classId}/periods`, {
+        const r = await api(IdSchema, `/classrooms/${classId}/periods`, {
           method: "POST",
           body: JSON.stringify({
             name: fieldName,
@@ -622,10 +645,10 @@
         await api(`/classrooms/${classId}/students/${targetId}`, {
           method: "DELETE",
         });
-        classrooms = await api("/classrooms");
+        classrooms = await api(ClassroomSchema.array(), "/classrooms");
         await loadWorkspace();
       }
-      dialog.close();
+      dialog?.close();
       modal = "";
     } catch (e) {
       fail(e);
@@ -633,7 +656,7 @@
       busy = false;
     }
   }
-  async function removeTeacher(id) {
+  async function removeTeacher(id: string) {
     busy = true;
     error = "";
     try {
@@ -645,18 +668,18 @@
       busy = false;
     }
   }
-  async function revokeInvitation(id) {
+  async function revokeInvitation(id: string) {
     busy = true;
     try {
       await api("/admin/invitations/" + id, { method: "DELETE" });
-      invitations = await api("/admin/invitations");
+      invitations = await api(InvitationSchema.array(), "/admin/invitations");
     } catch (e) {
       fail(e);
     } finally {
       busy = false;
     }
   }
-  function download(blob, filename) {
+  function download(blob: Blob, filename: string) {
     const url = URL.createObjectURL(blob),
       a = document.createElement("a");
     a.href = url;
@@ -664,7 +687,7 @@
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 30000);
   }
-  function filenamePart(name) {
+  function filenamePart(name: string) {
     return name.replace(/[\\/:*?"<>|\x00-\x1f]/g, "-").trim() || "Mathematik";
   }
   async function exportZip() {
@@ -677,12 +700,13 @@
         `/api/classrooms/${classId}/periods/${periodId}/zip`,
       );
       if (!r.ok) {
-        const e = await r.json();
-        throw new Error(e.error || "Der ZIP-Export ist fehlgeschlagen.");
+        const data: unknown = await r.json();
+        const e = data && typeof data === "object" && "error" in data && typeof data.error === "string" ? data.error : "";
+        throw new Error(e || "Der ZIP-Export ist fehlgeschlagen.");
       }
       download(
         await r.blob(),
-        `Mathematik-${filenamePart(currentClass.name)}-${filenamePart(currentPeriod.name)}.zip`,
+        `Mathematik-${filenamePart(currentClass?.name || "Klasse")}-${filenamePart(currentPeriod?.name || "Zeitraum")}.zip`,
       );
     } catch (e) {
       fail(e);
@@ -700,12 +724,13 @@
         `/api/classrooms/${classId}/periods/${periodId}/students/${studentId}/pdf`,
       );
       if (!r.ok) {
-        const e = await r.json();
-        throw new Error(e.error || "Der Export ist fehlgeschlagen.");
+        const data: unknown = await r.json();
+        const e = data && typeof data === "object" && "error" in data && typeof data.error === "string" ? data.error : "";
+        throw new Error(e || "Der Export ist fehlgeschlagen.");
       }
       download(
         await r.blob(),
-        `Mathematik-${filenamePart(currentStudent.name)}-${filenamePart(currentPeriod.name)}.pdf`,
+        `Mathematik-${filenamePart(currentStudent.name)}-${filenamePart(currentPeriod?.name || "Zeitraum")}.pdf`,
       );
     } catch (e) {
       fail(e);
@@ -1077,7 +1102,7 @@
         {:else if feature === "settings"}
           {#key classId}<ClassSettings
               {classId}
-              classroom={currentClass}
+              classroom={currentClass ?? null}
               teachers={workspace?.teachers || []}
               bind:saving
               disabled={busy || !!modal}
@@ -1462,7 +1487,7 @@
                               >{/if}
                             <span class="level-count"
                               >{group.criteria.length} Kompetenzen · PDF S. {group
-                                .criteria[0].page}</span
+                                .criteria[0]?.page}</span
                             >
                           </div>
                           {#each group.criteria as c}

@@ -63,9 +63,9 @@ test("pupil results preserve duplicate names and distinguish unrecorded pupils",
     },
   ];
   const rows = pupilPerformances(pupils, records, "  ANNA ");
-  assert.equal(rows[0].performance, null);
-  assert.equal(rows[1].performance.rating, 3);
-  assert.equal(rows[1].performance.observation, "Begründet ihren Lösungsweg.");
+  assert.equal(rows[0]?.performance, null);
+  assert.equal(rows[1]?.performance?.rating, 3);
+  assert.equal(rows[1]?.performance?.observation, "Begründet ihren Lösungsweg.");
   assert.deepEqual(
     pupilPerformances(pupils, records, "", true).map((p) => p.id),
     ["two"],

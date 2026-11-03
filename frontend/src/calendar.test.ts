@@ -27,16 +27,16 @@ test("resizing keeps the start fixed and prevents empty or overnight lessons", (
   assert.deepEqual(resizeRange(1430, 1500), { start: 1430, end: 1439 });
 });
 test("adjacent lessons use the same lane while overlaps remain independently visible", () => {
-  const lesson = (id, start, end) => ({ id, starts_at: start, ends_at: end });
+  const lesson = (id: string, start: string, end: string) => ({ id, starts_at: start, ends_at: end });
   const result = dayLayout([
     lesson("a", "08:00", "08:45"),
     lesson("b", "08:45", "09:30"),
     lesson("replacement", "08:15", "08:40"),
     lesson("later", "10:00", "10:45"),
   ]);
-  assert.equal(result.find((i) => i.lesson.id === "a").lanes, 2);
-  assert.equal(result.find((i) => i.lesson.id === "replacement").lane, 1);
-  assert.equal(result.find((i) => i.lesson.id === "b").lanes, 1);
-  assert.equal(result.find((i) => i.lesson.id === "later").lanes, 1);
+  assert.equal(result.find((i) => i.lesson.id === "a")?.lanes, 2);
+  assert.equal(result.find((i) => i.lesson.id === "replacement")?.lane, 1);
+  assert.equal(result.find((i) => i.lesson.id === "b")?.lanes, 1);
+  assert.equal(result.find((i) => i.lesson.id === "later")?.lanes, 1);
   assert.deepEqual(dayLayout([]), []);
 });

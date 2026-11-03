@@ -1,7 +1,18 @@
 <script lang="ts">
+  import { AttendanceSchema } from "./models.ts";
+  import type { Student, ErrorHandler } from "./models.ts";
   import { onDestroy, untrack } from "svelte";
-  import { api } from "./api.ts";
+  import { api, errorMessage, errorStatus } from "./api.ts";
 
+  interface Props {
+    classId: string;
+    saving?: boolean;
+    disabled?: boolean;
+    onerror: ErrorHandler;
+    students: Student[];
+    className: string;
+    initialDate?: string;
+  }
   let {
     classId,
     className,
@@ -10,11 +21,11 @@
     disabled = false,
     onerror,
     initialDate = "",
-  } = $props();
+  }: Props = $props();
   let mode = $state("roll"),
     date = $state(untrack(() => initialDate || today())),
     month = $state(untrack(() => (initialDate || today()).slice(0, 7)));
-  let records = $state({}),
+  let records = $state<Record<string, string | null | undefined>>({}),
     loading = $state(true),
     loadedDate = $state("");
   let error = $state(""),
@@ -60,7 +71,7 @@
     ];
   });
 
-  function dateKey(d) {
+  function dateKey(d: Date) {
     return `${String(d.getFullYear()).padStart(4, "0")}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
   function today() {
@@ -70,7 +81,7 @@
     const next = students.findIndex((s) => !values[s.id]);
     return next === -1 ? students.length : next;
   }
-  function selectDate(value) {
+  function selectDate(value: string) {
     if (
       saving ||
       disabled ||
@@ -82,12 +93,12 @@
     date = value;
     month = value.slice(0, 7);
   }
-  function moveMonth(offset) {
+  function moveMonth(offset: number) {
     const d = new Date(month + "-15T12:00:00");
     d.setMonth(d.getMonth() + offset);
     month = dateKey(d).slice(0, 7);
   }
-  function chooseMode(value) {
+  function chooseMode(value: string) {
     mode = value;
     if (value === "roll") index = firstOpen();
   }
@@ -98,14 +109,14 @@
     version += 1;
   });
 
-  async function loadDay(classroom, day) {
+  async function loadDay(classroom: string, day: string) {
     const request = ++version;
     loading = true;
     loadedDate = "";
     error = "";
     notice = "";
     try {
-      const result = await api(`/classrooms/${classroom}/attendance/${day}`);
+      const result = await api(AttendanceSchema.array(), `/classrooms/${classroom}/attendance/${day}`);
       if (request !== version) return;
       const values = Object.fromEntries(
         result.map((r) => [r.student_id, r.status]),
@@ -115,13 +126,13 @@
       loadedDate = day;
     } catch (e) {
       if (request !== version) return;
-      error = e.message;
-      if (e.status === 401) onerror(e);
+      error = errorMessage(e);
+      if (errorStatus(e) === 401) onerror(e);
     } finally {
       if (request === version) loading = false;
     }
   }
-  async function save(student, status, advance = false) {
+  async function save(student: string, status: string | null, advance = false) {
     if (locked) return;
     saving = true;
     error = "";
@@ -135,8 +146,8 @@
       notice = "Alle Änderungen gespeichert";
       if (advance) index += 1;
     } catch (e) {
-      error = e.message;
-      if (e.status === 401) onerror(e);
+      error = errorMessage(e);
+      if (errorStatus(e) === 401) onerror(e);
     } finally {
       saving = false;
     }

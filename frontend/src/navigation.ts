@@ -21,7 +21,7 @@ export function readRoute() {
   const feature = match?.[2] || globalFeature;
   return {
     classId: match?.[1] || "",
-    feature: workAreas.some((a) => a.id === feature) ? feature : "dashboard",
+    feature: workAreas.some((a) => a.id === feature) ? feature || "dashboard" : "dashboard",
     tab: query.get("tab") === "history" ? "history" : "open",
     subject: query.get("subject") || "",
     pupil: query.get("pupil") || "",

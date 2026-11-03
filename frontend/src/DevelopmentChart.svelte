@@ -1,7 +1,12 @@
 <script lang="ts">
+  import type { PupilPerformance } from "./models.ts";
   import { dateLabel } from "./teaching.ts";
   import { performancePoints } from "./pupil-history.ts";
-  let { records, label } = $props();
+  interface Props {
+    records: (Omit<PupilPerformance, "student_id"> & { count?: number })[];
+    label: string;
+  }
+  let { records, label }: Props = $props();
   const points = $derived(performancePoints(records));
   const subjects = $derived(
     [
@@ -50,9 +55,9 @@
               : ""}{point.observation ? ` · ${point.observation}` : ""}</title
           ></circle
         >{/each}{/each}
-    {#if points.length}<text x="60" y="245">{dateLabel(points[0].date)}</text
+    {#if points.length}<text x="60" y="245">{dateLabel(points[0]?.date ?? "")}</text
       ><text x="660" y="245" text-anchor="end"
-        >{dateLabel(points.at(-1).date)}</text
+        >{dateLabel(points[points.length - 1]?.date ?? "")}</text
       >{/if}
   </svg>
 </div>

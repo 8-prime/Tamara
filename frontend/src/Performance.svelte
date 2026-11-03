@@ -1,8 +1,18 @@
 <script lang="ts">
+  import { PerformanceSchema, WorkspaceSchema } from "./models.ts";
+  import type { Student, Lesson, Performance, ErrorHandler } from "./models.ts";
   import { onMount } from "svelte";
-  import { api } from "./api.ts";
+  import { api, errorMessage, errorStatus } from "./api.ts";
   import Icon from "./Icon.svelte";
   import { initials, dateLabel } from "./teaching.ts";
+  interface Props {
+    lesson: Lesson;
+    saving?: boolean;
+    onclose: () => void;
+    onerror?: ErrorHandler;
+    studentId?: string;
+    onreview?: ((lesson: Lesson) => void) | null;
+  }
   let {
     lesson,
     saving = $bindable(false),
@@ -10,10 +20,10 @@
     onerror = () => {},
     studentId = "",
     onreview = null,
-  } = $props();
-  let dialog = $state(null),
-    students = $state([]),
-    records = $state({}),
+  }: Props = $props();
+  let dialog = $state<HTMLDialogElement | undefined>(),
+    students = $state<Student[]>([]),
+    records = $state<Record<string, Performance | undefined>>({}),
     index = $state(0),
     loading = $state(true),
     error = $state("");
@@ -22,11 +32,11 @@
   const pupil = $derived(students[index]);
   const count = $derived(Object.keys(records).length);
   onMount(async () => {
-    dialog.showModal();
+    dialog?.showModal();
     try {
       const [workspace, list] = await Promise.all([
-        api(`/classrooms/${lesson.classroom_id}/workspace`),
-        api(`/lessons/${lesson.id}/performances`),
+        api(WorkspaceSchema, `/classrooms/${lesson.classroom_id}/workspace`),
+        api(PerformanceSchema.array(), `/lessons/${lesson.id}/performances`),
       ]);
       students = workspace.students;
       records = Object.fromEntries(list.map((r) => [r.student_id, r]));
@@ -34,25 +44,26 @@
       const requested = students.findIndex((s) => s.id === studentId);
       choose(requested >= 0 ? requested : next < 0 ? students.length : next);
     } catch (e) {
-      error = e.message;
+      error = errorMessage(e);
       onerror(e);
     } finally {
       loading = false;
     }
   });
-  function choose(i) {
+  function choose(i: number) {
     index = i;
-    const record = records[students[i]?.id];
+    const student = students[i];
+    const record = student ? records[student.id] : undefined;
     rating = record?.rating || 0;
     observation = record?.observation || "";
   }
   function close() {
     if (!saving) {
-      dialog.close();
+      dialog?.close();
       onclose();
     }
   }
-  function keyboard(e) {
+  function keyboard(e: KeyboardEvent) {
     if (
       saving ||
       loading ||
@@ -98,7 +109,7 @@
       }
       choose(index + 1);
     } catch (e) {
-      error = e.message;
+      error = errorMessage(e);
       onerror(e);
     } finally {
       saving = false;
@@ -139,8 +150,8 @@
         class="text-button"
         onclick={() => {
           if (!saving) {
-            dialog.close();
-            onreview();
+            dialog?.close();
+            onreview?.(lesson);
           }
         }}
         disabled={saving}
