@@ -26,6 +26,7 @@ use std::{
 };
 use tower::ServiceExt;
 
+mod conferences;
 mod homework;
 mod layers;
 mod notes;

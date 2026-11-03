@@ -4,6 +4,7 @@ mod assessments;
 mod attendance;
 mod auth;
 mod classrooms;
+mod conferences;
 mod error;
 mod exports;
 mod homework;
@@ -55,6 +56,11 @@ pub(crate) fn routes(s: AppState) -> Router {
 
 pub(crate) fn routes_with_frontend(s: AppState, dist: &std::path::Path) -> Router {
     let api = Router::new()
+        .route("/conferences", get(conferences::list))
+        .route(
+            "/conferences/{id}",
+            axum::routing::put(conferences::save).delete(conferences::remove),
+        )
         .route(
             "/classrooms/{class}/pupil-history",
             get(pupil_history::history),

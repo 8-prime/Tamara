@@ -8,6 +8,7 @@
   import PupilOverview from "./PupilOverview.svelte";
   import Notes from "./Notes.svelte";
   import ClassSettings from "./ClassSettings.svelte";
+  import Conferences from "./Conferences.svelte";
   import Teaching from "./Teaching.svelte";
   import Tasks from "./Tasks.svelte";
   import { readRoute, workspaceUrl, workAreas } from "./navigation.js";
@@ -300,7 +301,7 @@
       saving ||
       busy ||
       loading ||
-      (!classId && !["dashboard", "calendar"].includes(area))
+      (!classId && !workAreas.find((a) => a.id === area)?.global)
     )
       return;
     if (feature !== area) {
@@ -1037,6 +1038,8 @@
             onclasses={refreshClasses}
             onerror={fail}
           />
+        {:else if feature === "conferences"}
+          {#key teacher.id}<Conferences accountId={teacher.id} {classrooms} onerror={fail} />{/key}
         {:else if !classrooms.length}<div class="welcome-empty">
             <span class="large-flower">✳</span><span class="eyebrow"
               >DEIN ERSTER SCHRITT</span

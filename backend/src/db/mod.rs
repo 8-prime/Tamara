@@ -4,6 +4,7 @@ mod assessments;
 mod attendance;
 pub(crate) mod backup;
 mod classrooms;
+mod conferences;
 pub(crate) mod exports;
 mod homework;
 mod notes;
