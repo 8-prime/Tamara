@@ -1,4 +1,5 @@
 export const workAreas = [
+  { id: "conferences", label: "Konferenzen", icon: "note", global: true },
   { id: "dashboard", label: "Dashboard", icon: "home", global: true },
   { id: "calendar", label: "Kalender", icon: "calendar", global: true },
   { id: "students", label: "Klassen", icon: "users" },

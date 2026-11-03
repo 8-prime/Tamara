@@ -160,3 +160,15 @@ pub(crate) struct Account {
     pub(crate) teacher: Teacher,
     pub(crate) password_hash: String,
 }
+
+#[derive(serde::Serialize, serde::Deserialize, sqlx::FromRow)]
+pub(crate) struct Conference {
+    #[serde(default)]
+    pub id: String,
+    pub classroom_id: Option<String>,
+    pub date: String,
+    pub title: Option<String>,
+    pub content: String,
+    #[serde(default)]
+    pub updated_at: i64,
+}
