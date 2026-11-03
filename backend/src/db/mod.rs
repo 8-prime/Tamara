@@ -8,6 +8,7 @@ mod conferences;
 pub(crate) mod exports;
 mod homework;
 mod notes;
+mod pupil_history;
 mod teaching;
 
 use crate::pdf;

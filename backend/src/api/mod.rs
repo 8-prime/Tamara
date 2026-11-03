@@ -9,6 +9,7 @@ mod error;
 mod exports;
 mod homework;
 mod notes;
+mod pupil_history;
 mod teaching;
 
 use crate::{
@@ -59,6 +60,10 @@ pub(crate) fn routes_with_frontend(s: AppState, dist: &std::path::Path) -> Route
         .route(
             "/conferences/{id}",
             axum::routing::put(conferences::save).delete(conferences::remove),
+        )
+        .route(
+            "/classrooms/{class}/pupil-history",
+            get(pupil_history::history),
         )
         .route("/auth/status", get(auth::auth_status))
         .route("/auth/register", post(auth::register))

@@ -24,6 +24,7 @@ export function readRoute() {
     feature: workAreas.some((a) => a.id === feature) ? feature : "dashboard",
     tab: query.get("tab") === "history" ? "history" : "open",
     subject: query.get("subject") || "",
+    pupil: query.get("pupil") || "",
     lesson: query.get("lesson") || "",
     date: query.get("date") || "",
   };
@@ -35,6 +36,7 @@ export function workspaceUrl(
   subject = "",
   lesson = "",
   date = "",
+  pupil = "",
 ) {
   const area = workAreas.find((a) => a.id === feature);
   const path = area?.global
@@ -49,6 +51,7 @@ export function workspaceUrl(
     query.set("tab", tab);
     if (subject) query.set("subject", subject);
   }
+  if (feature === "students" && pupil) query.set("pupil", pupil);
   if (lesson) query.set("lesson", lesson);
   if (date) query.set("date", date);
   return path + (query.size ? "?" + query : "");
