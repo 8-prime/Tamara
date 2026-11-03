@@ -1,6 +1,6 @@
-<script>
+<script lang="ts">
   import { onMount } from "svelte";
-  import { api } from "./api.js";
+  import { api } from "./api.ts";
 
   let {
     classId,

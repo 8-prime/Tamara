@@ -1,23 +1,23 @@
-export function timeMinutes(time) {
+export function timeMinutes(time: string) {
   const [hours, minutes] = time.split(":").map(Number);
   return hours * 60 + minutes;
 }
 
-export function timeString(minutes) {
+export function timeString(minutes: number) {
   return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 }
 
-export function snapMinute(minutes, step = 15) {
+export function snapMinute(minutes: number, step = 15) {
   return Math.round(minutes / step) * step;
 }
 
-export function moveRange(start, end, target) {
+export function moveRange(start: number, end: number, target: number) {
   const duration = end - start;
   const next = Math.max(0, Math.min(1439 - duration, snapMinute(target)));
   return { start: next, end: next + duration };
 }
 
-export function resizeRange(start, target) {
+export function resizeRange(start: number, target: number) {
   return {
     start,
     end: Math.min(1439, Math.max(start + 15, snapMinute(target))),
@@ -25,10 +25,11 @@ export function resizeRange(start, target) {
 }
 
 // Interval lanes also keep cancelled lessons legible beside replacement lessons.
-export function dayLayout(lessons) {
+export function dayLayout<T extends { id: string; starts_at: string; ends_at: string }>(lessons: T[]) {
   const sorted = lessons
     .map((lesson) => ({
       lesson,
+      lane: 0,
       start: timeMinutes(lesson.starts_at),
       end: timeMinutes(lesson.ends_at),
     }))
@@ -38,8 +39,8 @@ export function dayLayout(lessons) {
         b.end - a.end ||
         a.lesson.id.localeCompare(b.lesson.id),
     );
-  const result = [];
-  let group = [],
+  const result: (typeof sorted[number] & { lanes: number })[] = [];
+  let group: typeof sorted = [],
     groupEnd = -1;
   function flush() {
     const lanes = [];

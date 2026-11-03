@@ -1,10 +1,10 @@
-<script>
+<script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { api } from "./api.js";
+  import { api } from "./api.ts";
   import Icon from "./Icon.svelte";
   import LessonEditor from "./LessonEditor.svelte";
   import LessonCalendar from "./LessonCalendar.svelte";
-  import { timeMinutes, timeString } from "./calendar.js";
+  import { timeMinutes, timeString } from "./calendar.ts";
   import Performance from "./Performance.svelte";
   import PerformanceOverview from "./PerformanceOverview.svelte";
   import ClassActionPicker from "./ClassActionPicker.svelte";
@@ -18,7 +18,7 @@
     currentOrNext,
     lessonAction,
     taskDone,
-  } from "./teaching.js";
+  } from "./teaching.ts";
   let {
     view,
     teacher,

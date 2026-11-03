@@ -204,3 +204,5 @@ The Rust suite exercises the real Axum router without requiring a network listen
 The workflow test writes `output/pdf/qa-all-criteria.pdf`, a synthetic fully marked export for visual review. `scripts/smoke-test.py` additionally exercises a real HTTP server, restart persistence, and PDF validation when local sockets and Poppler's `pdfinfo` are available. It uses a disposable database and cleans up its server.
 
 After building the image, run `python3 scripts/container-smoke-test.py tamara:local` to verify the compiled frontend, HTTP API, non-root runtime, graceful shutdown, and account/session/classroom persistence across container replacement. This uses and removes an isolated test container and volume. CI builds the Docker image and runs this check on every push.
+
+The Svelte frontend uses TypeScript in components, shared modules, and tests. Run `pnpm --dir frontend check` for type checking, `pnpm --dir frontend test` for tests (Node 24), and `pnpm --dir frontend build` for a checked production build. The compiler currently permits implicit types for existing component state; strict mode is not enabled.

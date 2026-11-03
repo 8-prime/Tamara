@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { titleOf, snapshots } from './conference-store.js';
+import { titleOf, snapshots } from './conference-store.ts';
 test('titles follow note unless overridden', () => {
   assert.equal(titleOf({content:'one two three four five six seven eight'}),'one two three four five six seven');
   assert.equal(titleOf({content:'new text',title:'Custom'}),'Custom');

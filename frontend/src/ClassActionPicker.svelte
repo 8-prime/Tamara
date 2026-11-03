@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
   import { onMount } from "svelte";
   import Icon from "./Icon.svelte";
   let { classrooms, action, onchoose, onclose } = $props();

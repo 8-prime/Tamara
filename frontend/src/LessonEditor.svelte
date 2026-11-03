@@ -1,8 +1,8 @@
-<script>
+<script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { api } from "./api.js";
+  import { api } from "./api.ts";
   import Icon from "./Icon.svelte";
-  import { dateKey } from "./teaching.js";
+  import { dateKey } from "./teaching.ts";
   let {
     classrooms,
     lesson = null,
