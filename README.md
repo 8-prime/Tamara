@@ -177,11 +177,27 @@ Review the generated labels, levels, and rendered cross positions before changin
 
 Passwords use Argon2id. Sessions use random opaque tokens, stored hashed, with Secure/HttpOnly/SameSite=Strict cookies and seven-day expiry. State-changing API calls require `X-Tamara-Request: 1`; there is no cross-origin API access. Sharing checks also guard PDF exports. Bulk grading and period copies are transactional; invitation redemption is serialized with an immediate transaction. Login attempts are throttled per email in memory.
 
-For deployment, use HTTPS (mandatory for remote deployments), a private terminal/log for initial setup, and persistent storage for the SQLite database. Password reset, email delivery, moving students between classes, and live synchronization between browsers are outside this first version. Concurrent edits to the same assessment use the last saved value; reloading a classroom retrieves other teachers' changes.
+For deployment, use HTTPS (mandatory for remote deployments), a private terminal/log for initial setup, and persistent storage for the SQLite database. Email delivery, moving students between classes, and live synchronization between browsers are outside this first version. Concurrent edits to the same assessment use the last saved value; reloading a classroom retrieves other teachers' changes.
 
 Session cookies always use `Secure`, including logout; `TAMARA_SECURE_COOKIES` is no longer used. Terminate HTTPS at your reverse proxy and keep the HTTP backend private. Local HTTP development relies on the browser’s localhost exception for Secure cookies.
 
 Conference drafts and revision history are held only in memory for the current session and cleared on logout/session expiry. Closing or reloading the page discards unsubmitted changes. Startup deletes the legacy `tamara-conferences` IndexedDB database without reading it; close older tabs if they block deletion.
+
+## Accounts, deletion and password recovery
+
+**Administration → Konten verwalten** lists registered accounts, their registration dates, roles and owned-class counts. Administrators can grant/revoke administrator rights, issue password reset links and delete accounts. **Mein Konto** lets every teacher delete their own account. The last administrator cannot be deleted or demoted; appoint another administrator first.
+
+Deletion requires the acting user's current password and a confirmation preview listing the target account's owned classes and pupil counts. It permanently removes the account, sessions, password reset tokens, associated invitations, private conference notes and all owned classes with their pupil records, worksheets, tasks, lessons and assessments, including classes shared with colleagues. Records in other teachers' classes remain, with the deleted account's author/schedule references set to null; this does not redact names typed into other people's free-text records. Changes to the owned-class list invalidate the confirmation. All deletion writes commit or roll back together. Existing backup archives are unchanged; retention and encryption remain separate deployment decisions.
+
+Administrators issue a **Passwort zurücksetzen** link and pass it privately to the intended teacher. Links expire after one hour, work once, and replace any previous link for the account. Only SHA-256 token hashes are stored. The link carries its token in a URL fragment, which is removed from the address bar when the reset screen loads; it is not sent in a URL/query string to the proxy. Completing a reset revokes all account sessions and requires a fresh login. An old login that finishes concurrently cannot create a session with the superseded password. Email delivery is not implemented. If the only administrator loses access, recovery requires trusted server-operator intervention; there is no public reset-link issuance endpoint.
+
+Migration `0011_account_lifecycle.sql` rebuilds teacher-referencing tables to permit null attribution on deletion, preserving existing rows and indexes. Initialization runs migrations on one connection with foreign-key enforcement temporarily disabled, then restores enforcement before serving requests. An integrity check inside migration 0011 aborts the transaction on broken references. Make a pre-upgrade backup; rolling back the binary requires restoring that backup. Run one application instance during migration.
+
+## Security logging
+
+Security events are emitted to the process log with target `tamara::security` (included in the default `tamara=info` filter). Events cover registration, successful/failed login, logout, denied/throttled requests, mutation-guard failures, successful API mutations, administrator changes, account deletion, reset-link issuance/completion, invitation creation/revocation, sharing changes, manual backups and assessment PDF/ZIP exports. Account-specific events use opaque account IDs; generic mutation events record HTTP method, matched route template and status. Logs deliberately exclude passwords, raw session/invitation/reset tokens, email addresses, pupil names and note contents. This is an operational security log, not an immutable record of every field edit or read.
+
+Keep application/proxy logs private, avoid logging request bodies or credentials, and configure log rotation/retention at the deployment layer. No log retention policy is introduced by this change.
 
 ## Database backups
 

@@ -49,7 +49,7 @@ pub(crate) struct Assessment {
     pub(crate) student_id: String,
     pub(crate) criterion_id: String,
     pub(crate) value: String,
-    pub(crate) updated_by: String,
+    pub(crate) updated_by: Option<String>,
     pub(crate) updated_at: i64,
     pub(crate) achieved_on: Option<String>,
 }
@@ -132,9 +132,9 @@ pub(crate) struct Note {
     pub(crate) id: String,
     pub(crate) student_id: String,
     pub(crate) content: String,
-    pub(crate) created_by: String,
+    pub(crate) created_by: Option<String>,
     pub(crate) created_at: i64,
-    pub(crate) updated_by: String,
+    pub(crate) updated_by: Option<String>,
     pub(crate) updated_at: i64,
     pub(crate) lesson_id: Option<String>,
 }
@@ -143,7 +143,7 @@ pub(crate) struct Note {
 pub(crate) struct Attendance {
     pub(crate) student_id: String,
     pub(crate) status: String,
-    pub(crate) updated_by: String,
+    pub(crate) updated_by: Option<String>,
     pub(crate) updated_at: i64,
 }
 
@@ -171,4 +171,27 @@ pub(crate) struct Conference {
     pub content: String,
     #[serde(default)]
     pub updated_at: i64,
+}
+
+#[derive(Serialize, FromRow)]
+pub(crate) struct AccountSummary {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) email: String,
+    pub(crate) is_admin: bool,
+    pub(crate) created_at: i64,
+    pub(crate) owned_classrooms: i64,
+}
+#[derive(Serialize, FromRow)]
+pub(crate) struct OwnedClassroom {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) student_count: i64,
+}
+#[derive(Serialize)]
+pub(crate) struct AccountDeletion {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) email: String,
+    pub(crate) owned_classrooms: Vec<OwnedClassroom>,
 }

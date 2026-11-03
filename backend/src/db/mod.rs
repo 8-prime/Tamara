@@ -58,7 +58,18 @@ pub(crate) async fn connect(
 
 impl Database {
     pub(crate) async fn initialize(&self) -> std::result::Result<(), Box<dyn std::error::Error>> {
-        sqlx::migrate!("./migrations").run(&self.pool).await?;
+        // SQLite table rebuilds must not cascade-delete referencing records. No
+        // requests are served during initialize(); keep this on one connection.
+        let mut connection = self.pool.acquire().await?;
+        sqlx::query("PRAGMA foreign_keys=OFF")
+            .execute(&mut *connection)
+            .await?;
+        let migration = sqlx::migrate!("./migrations").run(&mut *connection).await;
+        sqlx::query("PRAGMA foreign_keys=ON")
+            .execute(&mut *connection)
+            .await?;
+        drop(connection);
+        migration?;
         let mut tx = self.pool.begin().await?;
         for c in &pdf::catalog().criteria {
             sqlx::query(

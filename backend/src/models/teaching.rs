@@ -5,7 +5,7 @@ use sqlx::FromRow;
 pub(crate) struct Lesson {
     pub id: String,
     pub timetable_entry_id: Option<String>,
-    pub teacher_id: String,
+    pub teacher_id: Option<String>,
     pub classroom_id: String,
     pub class_name: String,
     pub subject_id: String,

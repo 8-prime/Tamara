@@ -132,6 +132,7 @@ pub(super) async fn share(
 ) -> Result<StatusCode> {
     s.auth.owner(&s.db, &class, &t.id).await?;
     s.db.share_class(&class, &email(&c.email)?).await?;
+    tracing::info!(target: "tamara::security", event="classroom_shared", actor_id=%t.id, classroom_id=%class);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -145,5 +146,6 @@ pub(super) async fn unshare(
         return Err(bad("Die Klassenleitung kann nicht entfernt werden."));
     }
     s.db.unshare_class(&class, &teacher).await?;
+    tracing::info!(target: "tamara::security", event="classroom_sharing_revoked", actor_id=%t.id, classroom_id=%class, account_id=%teacher);
     Ok(StatusCode::NO_CONTENT)
 }

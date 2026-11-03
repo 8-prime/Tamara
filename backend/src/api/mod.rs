@@ -36,9 +36,26 @@ async fn api_guard(req: axum::extract::Request, next: Next) -> Response {
         .and_then(|v| v.to_str().ok())
         != Some("1")
     {
+        tracing::warn!(target: "tamara::security", event="mutation_guard_rejected");
         return Error(ErrorKind::Forbidden, "Ungültige Anfrage.".into()).into_response();
     }
+    let method = req.method().clone();
+    // Matched templates contain no user-supplied IDs, query strings or tokens.
+    let route = req
+        .extensions()
+        .get::<axum::extract::MatchedPath>()
+        .map(|p| p.as_str().to_owned())
+        .unwrap_or_else(|| "unmatched".into());
     let mut response = next.run(req).await;
+    let status = response.status().as_u16();
+    if matches!(status, 401 | 403 | 429) {
+        tracing::warn!(target: "tamara::security", event="request_denied", %method, %route, status);
+    } else if method != axum::http::Method::GET
+        && method != axum::http::Method::HEAD
+        && response.status().is_success()
+    {
+        tracing::info!(target: "tamara::security", event="mutation_completed", %method, %route, status);
+    }
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
@@ -69,7 +86,22 @@ pub(crate) fn routes_with_frontend(s: AppState, dist: &std::path::Path) -> Route
         .route("/auth/register", post(auth::register))
         .route("/auth/login", post(auth::login))
         .route("/auth/logout", post(auth::logout))
-        .route("/auth/me", get(auth::me))
+        .route("/auth/me", get(auth::me).delete(auth::delete_account))
+        .route("/auth/me/deletion", get(auth::deletion_preview))
+        .route("/auth/reset-password", post(auth::reset_password))
+        .route("/admin/accounts", get(admin::accounts))
+        .route(
+            "/admin/accounts/{id}",
+            patch(admin::set_role).delete(admin::delete_account),
+        )
+        .route(
+            "/admin/accounts/{id}/deletion",
+            get(admin::deletion_preview),
+        )
+        .route(
+            "/admin/accounts/{id}/password-reset",
+            post(admin::password_reset),
+        )
         .route(
             "/admin/invitations",
             get(admin::invitations).post(admin::create_invitation),
