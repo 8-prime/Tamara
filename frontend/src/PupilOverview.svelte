@@ -186,6 +186,9 @@
     {/if}
   </section>
 {:else}
+  {#if !loading && !error}
+    <ClassDevelopment {students} {data} {today} {onselect} />
+  {/if}
   <section
     class="workspace-card settings-panel"
     aria-label="Kinderliste"
