@@ -8,6 +8,7 @@ mod conferences;
 pub(crate) mod exports;
 mod homework;
 mod notes;
+mod parent_conferences;
 mod pupil_history;
 mod teaching;
 

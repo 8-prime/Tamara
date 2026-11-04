@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ParentConference } from "./models.ts";
 import { ConferenceSchema } from "./models.ts";
 export function titleOf(note: { title?: string | null; content: string }) {
   return note.title?.trim() || note.content.trim().split(/\s+/).slice(0, 7).join(' ').slice(0, 90) || 'Neue Konferenz';
@@ -16,7 +17,7 @@ export type ConferenceNote = z.infer<typeof ConferenceSchema>;
 export interface LocalRecord { account: string; note: ConferenceNote; history: Snapshot<ConferenceNote>[]; pending: boolean }
 const drafts = new Map<string, LocalRecord>();
 let generation = 0;
-export function clearMemory() { generation++; drafts.clear(); }
+export function clearMemory() { generation++; drafts.clear(); parentDrafts.clear(); }
 export function memoryGeneration() { return generation; }
 export async function records(account: string): Promise<LocalRecord[]> {
   return structuredClone([...drafts.values()].filter(row => row.account === account));
@@ -35,4 +36,13 @@ export async function removeLegacyStorage(): Promise<void> {
     request.onerror = () => reject(new Error('Alte lokale Konferenzkopien konnten nicht gelöscht werden.'));
     request.onblocked = () => reject(new Error('Bitte andere Tamara-Tabs schließen und neu laden, um alte lokale Konferenzkopien zu löschen.'));
   });
+}
+
+// Unsaved parent conference edits stay in memory across navigation, never on disk.
+interface ParentDraft { note: ParentConference; attendees: string; history: Snapshot<{ content: string }>[] }
+const parentDrafts = new Map<string, ParentDraft>();
+export function parentDraft(account: string) { return structuredClone(parentDrafts.get(account)); }
+export function writeParentDraft(account: string, draft: ParentDraft | null, expectedGeneration: number) {
+  if (generation !== expectedGeneration) return;
+  if (draft) parentDrafts.set(account, structuredClone(draft)); else parentDrafts.delete(account);
 }

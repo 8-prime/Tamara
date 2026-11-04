@@ -32,6 +32,7 @@
   import PupilOverview from "./PupilOverview.svelte";
   import Notes from "./Notes.svelte";
   import ClassSettings from "./ClassSettings.svelte";
+  import ParentConferences from "./ParentConferences.svelte";
   import Conferences from "./Conferences.svelte";
   import Teaching from "./Teaching.svelte";
   import Tasks from "./Tasks.svelte";
@@ -1076,6 +1077,8 @@
             onclasses={refreshClasses}
             onerror={fail}
           />
+        {:else if feature === "parent-conferences"}
+          {#key teacher.id}<ParentConferences accountId={teacher.id} onerror={fail} />{/key}
         {:else if feature === "conferences"}
           {#key teacher.id}<Conferences accountId={teacher.id} {classrooms} onerror={fail} />{/key}
         {:else if !classrooms.length}<div class="welcome-empty">

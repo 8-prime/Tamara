@@ -49,6 +49,16 @@ Work areas have URLs such as `/classes/{class-id}/homework?tab=open`. Refresh, d
 
 Manage the class roster under **Kinder**, and its subjects and sharing under **Klasseneinstellungen**. View modes, dates, grading periods, homework tabs, and subject filters remain within their respective pages.
 
+## Parent–teacher conferences
+
+**Elterngespräche** is a personal area across all accessible classes, separate from general **Konferenzen**. Create a meeting by choosing a pupil and date; it has no subject or lesson association. The list groups meetings by day, newest first, with counts of meetings, distinct pupils and attending parents/guardians. Search by pupil name across dates; filtered daily counts describe the matching meetings. Duplicate pupil names remain separate records, with class names for context.
+
+Record actual attendees with one name per line. Each meeting has one autosaved note, a save/retry button and session-only note history. Unsaved edits remain in memory across navigation and clear on logout; no pupil notes are stored in browser storage. Leaving the browser with unsaved edits triggers a warning.
+
+Upload any document type up to 10 MB per file, download it privately, or remove it. Downloads always use attachment disposition and an opaque binary content type. Optionally capture the pupil's **Lernentwicklung** for a selected assessment period: the snapshot includes competency labels, affirmative and negative ratings, unassessed competencies, achievement dates, period name and school year. It is read-only and independent of later assessment or period edits/deletion. Explicitly remove it before taking a replacement.
+
+Meetings and their documents are private to their creator and require continuing access to the pupil's class. Removing class sharing blocks access immediately. Deleting a meeting removes its documents; deleting its pupil/class or creator cascades to the meeting. Migration **0012_parent_conferences.sql** adds separate tables without changing general conferences or assessment data.
+
 ## Pupil history
 
 **Klassen → Kinder** opens with **Klassenentwicklung**: a class performance chart, subject and date filters, and a per-pupil summary with links to each child's detail view. Each chart point averages the recorded pupil ratings for one lesson; subjects have separate lines. Unrated pupils do not count as zero. Expand the lesson table to see each point's average and number of rated children. The set of rated pupils can vary between lessons. The pupil summary includes rating counts and averages, the last assessment date, homework submissions for assignments due before today, and recent missing homework. Subject and date filters apply to both performance and homework summaries (homework uses its due date).

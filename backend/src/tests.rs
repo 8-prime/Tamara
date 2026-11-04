@@ -31,6 +31,7 @@ mod conferences;
 mod homework;
 mod layers;
 mod notes;
+mod parent_conferences;
 mod teaching;
 
 struct Client {

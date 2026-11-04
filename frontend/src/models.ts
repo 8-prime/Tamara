@@ -220,3 +220,16 @@ export type AccountSummary = z.infer<typeof AccountSummarySchema>;
 export const AccountDeletionSchema = z.object({id: z.string(), name: z.string(), email: z.string(), owned_classrooms: z.array(z.object({id: z.string(), name: z.string(), student_count: z.number()}))});
 export type AccountDeletion = z.infer<typeof AccountDeletionSchema>;
 export const PasswordResetResultSchema = z.object({token: z.string(), expires_at: z.number()});
+
+export const ParentPupilSchema = StudentSchema.extend({ classroom_id: z.string(), class_name: z.string() });
+export type ParentPupil = z.infer<typeof ParentPupilSchema>;
+export const ParentReviewSchema = z.object({
+  period_name: z.string(), school_year: z.string(), captured_at: z.number(),
+  assessments: z.array(z.object({ criterion_id: z.string(), label: z.string(), domain: z.string(), section: z.string(), level: z.string(), value: z.enum(['yes', 'no']).nullable(), achieved_on: z.string().nullable() })),
+});
+export const ParentConferenceSchema = z.object({
+  id: z.string(), student_id: z.string(), student_name: z.string(), classroom_id: z.string(), class_name: z.string(), date: z.string(), content: z.string(), attendees: z.string().array(), review_snapshot: ParentReviewSchema.nullable(),
+});
+export type ParentConference = z.infer<typeof ParentConferenceSchema>;
+export const ConferenceDocumentSchema = z.object({ id: z.string(), name: z.string(), size: z.number() });
+export type ConferenceDocument = z.infer<typeof ConferenceDocumentSchema>;

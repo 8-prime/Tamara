@@ -9,6 +9,7 @@ mod error;
 mod exports;
 mod homework;
 mod notes;
+mod parent_conferences;
 mod pupil_history;
 mod teaching;
 
@@ -73,6 +74,29 @@ pub(crate) fn routes(s: AppState) -> Router {
 
 pub(crate) fn routes_with_frontend(s: AppState, dist: &std::path::Path) -> Router {
     let api = Router::new()
+        .route(
+            "/parent-conferences/pupils",
+            get(parent_conferences::pupils),
+        )
+        .route("/parent-conferences", get(parent_conferences::list))
+        .route(
+            "/parent-conferences/{id}",
+            axum::routing::put(parent_conferences::save).delete(parent_conferences::remove),
+        )
+        .route(
+            "/parent-conferences/{id}/review",
+            post(parent_conferences::capture).delete(parent_conferences::remove_review),
+        )
+        .route(
+            "/parent-conferences/{id}/documents",
+            get(parent_conferences::documents)
+                .post(parent_conferences::upload)
+                .layer(DefaultBodyLimit::max(parent_conferences::MAX_DOCUMENT)),
+        )
+        .route(
+            "/parent-conferences/{id}/documents/{document}",
+            get(parent_conferences::download).delete(parent_conferences::remove_document),
+        )
         .route("/conferences", get(conferences::list))
         .route(
             "/conferences/{id}",

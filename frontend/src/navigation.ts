@@ -1,4 +1,5 @@
 export const workAreas = [
+  { id: "parent-conferences", label: "Elterngespräche", icon: "users", global: true },
   { id: "conferences", label: "Konferenzen", icon: "note", global: true },
   { id: "dashboard", label: "Dashboard", icon: "home", global: true },
   { id: "calendar", label: "Kalender", icon: "calendar", global: true },
