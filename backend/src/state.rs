@@ -9,5 +9,4 @@ pub(crate) struct AppState {
     pub(crate) db: Database,
     pub(crate) auth: Auth,
     pub(crate) backups: Option<Arc<Backups>>,
-    pub(crate) secure_cookie: bool,
 }

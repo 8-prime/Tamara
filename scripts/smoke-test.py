@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Integration checks using a disposable SQLite database and real HTTP server."""
-import http.cookiejar
+from loopback_cookies import loopback_cookie_jar
 import json
 import os
 from pathlib import Path
@@ -15,7 +15,7 @@ ROOT=Path(__file__).resolve().parents[1]
 class Client:
     def __init__(self,base):
         self.base=base
-        self.jar=http.cookiejar.CookieJar()
+        self.jar=loopback_cookie_jar()
         self.opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar))
     def call(self,path,method='GET',data=None,status=200,guard=True):
         headers={'Content-Type':'application/json'}

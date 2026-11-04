@@ -39,6 +39,7 @@ pub(super) async fn export_pdf(
         header::CONTENT_DISPOSITION,
         HeaderValue::from_static("attachment; filename=\"entwicklungsuebersicht-mathematik.pdf\""),
     );
+    tracing::info!(target: "tamara::security", event="pupil_pdf_exported", actor_id=%t.id, classroom_id=%class);
     Ok(r)
 }
 
@@ -70,5 +71,6 @@ pub(super) async fn export_zip(
     );
     r.headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    tracing::info!(target: "tamara::security", event="classroom_zip_exported", actor_id=%t.id, classroom_id=%class);
     Ok(r)
 }

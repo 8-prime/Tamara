@@ -72,30 +72,16 @@ impl Auth {
     pub(crate) async fn register(&self, db: &Database, c: Credentials) -> Result<Session> {
         let e = email(&c.email)?;
         let n = text(c.name.as_deref().unwrap_or(""), "Name", 120)?;
-        if c.password.chars().count() < 12 || c.password.len() > 256 {
-            return Err(bad(
-                "Das Passwort muss mindestens 12 Zeichen lang sein (höchstens 256 Bytes).",
-            ));
-        }
         self.throttle(&format!("register:{e}"))?;
-        let password = c.password;
-        let ph = tokio::task::spawn_blocking(move || {
-            let salt = SaltString::encode_b64(Uuid::new_v4().as_bytes()).map_err(internal)?;
-            Argon2::default()
-                .hash_password(password.as_bytes(), &salt)
-                .map(|h| h.to_string())
-                .map_err(internal)
-        })
-        .await
-        .map_err(internal)??;
+        let ph = Self::password_hash(c.password).await?;
         let token = c.registration_token.as_deref().unwrap_or("").trim();
         if token.is_empty() || token.len() > 256 {
             return Err(bad("Bitte einen gültigen Registrierungscode eingeben."));
         }
         let teacher = db
-            .register_teacher(n, e, ph, &hash(token), self.setup_hash.as_deref())
+            .register_teacher(n, e, ph.clone(), &hash(token), self.setup_hash.as_deref())
             .await?;
-        self.session(db, teacher).await
+        self.session(db, teacher, &ph).await
     }
 
     pub(crate) async fn login(&self, db: &Database, c: Credentials) -> Result<Session> {
@@ -136,12 +122,85 @@ impl Auth {
             .lock()
             .map_err(internal)?
             .remove(&format!("login:{e}"));
-        self.session(db, account.teacher).await
+        self.session(db, account.teacher, &account.password_hash)
+            .await
     }
 
-    async fn session(&self, db: &Database, teacher: Teacher) -> Result<Session> {
+    pub(crate) async fn password_hash(password: String) -> Result<String> {
+        if password.chars().count() < 12 || password.len() > 256 {
+            return Err(bad(
+                "Das Passwort muss mindestens 12 Zeichen lang sein (höchstens 256 Bytes).",
+            ));
+        }
+        tokio::task::spawn_blocking(move || {
+            let salt = SaltString::encode_b64(Uuid::new_v4().as_bytes()).map_err(internal)?;
+            Argon2::default()
+                .hash_password(password.as_bytes(), &salt)
+                .map(|h| h.to_string())
+                .map_err(internal)
+        })
+        .await
+        .map_err(internal)?
+    }
+    pub(crate) async fn confirm_password(
+        &self,
+        db: &Database,
+        teacher: &Teacher,
+        password: String,
+    ) -> Result<String> {
+        if password.len() > 256 {
+            return Err(bad("Ungültiges Passwort."));
+        }
+        self.throttle(&format!("confirm:{}", teacher.id))?;
+        let account = db
+            .login_account(&teacher.email)
+            .await?
+            .ok_or_else(crate::error::missing)?;
+        let ph = account.password_hash.clone();
+        let valid = tokio::task::spawn_blocking(move || {
+            PasswordHash::new(&ph).is_ok_and(|h| {
+                Argon2::default()
+                    .verify_password(password.as_bytes(), &h)
+                    .is_ok()
+            })
+        })
+        .await
+        .map_err(internal)?;
+        if !valid {
+            return Err(Error(
+                ErrorKind::Forbidden,
+                "Das Passwort ist nicht richtig.".into(),
+            ));
+        }
+        Ok(account.password_hash)
+    }
+    pub(crate) async fn reset_password(
+        &self,
+        db: &Database,
+        token: &str,
+        password: String,
+    ) -> Result<String> {
+        if token.len() != 64 || !token.bytes().all(|c| c.is_ascii_hexdigit()) {
+            return Err(bad("Ungültiger Link."));
+        }
+        let token_hash = hash(token);
+        if !db.valid_password_reset(&token_hash).await? {
+            return Err(bad("Der Link ist ungültig oder abgelaufen."));
+        }
+        self.throttle(&format!("password-reset:{token_hash}"))?;
+        let ph = Self::password_hash(password).await?;
+        let teacher = db.reset_password(&hash(token), &ph).await?;
+        Ok(teacher)
+    }
+    async fn session(
+        &self,
+        db: &Database,
+        teacher: Teacher,
+        password_hash: &str,
+    ) -> Result<Session> {
         let token = token();
-        db.create_session(&teacher.id, &hash(&token)).await?;
+        db.create_session(&teacher.id, &hash(&token), password_hash)
+            .await?;
         Ok(Session { teacher, token })
     }
     pub(crate) async fn logout(&self, db: &Database, token: Option<&str>) -> Result<()> {

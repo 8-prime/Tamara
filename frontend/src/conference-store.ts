@@ -13,40 +13,26 @@ export function snapshots<T>(history: Snapshot<T>[], note: T, now = Date.now(), 
 }
 export interface Snapshot<T> { at: number; note: T }
 export type ConferenceNote = z.infer<typeof ConferenceSchema>;
-const LocalRecordsSchema = z.array(z.object({account: z.string(), note: ConferenceSchema, history: z.array(z.object({at: z.number(), note: ConferenceSchema})), pending: z.boolean()}));
-export type LocalRecord = z.infer<typeof LocalRecordsSchema>[number];
-let database: Promise<IDBDatabase> | null;
-function open() {
-  return database ||= new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open('tamara-conferences', 1);
-    request.onupgradeneeded = () => request.result.createObjectStore('records', { keyPath: 'key' });
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => { database = null; reject(request.error); };
-  });
+export interface LocalRecord { account: string; note: ConferenceNote; history: Snapshot<ConferenceNote>[]; pending: boolean }
+const drafts = new Map<string, LocalRecord>();
+let generation = 0;
+export function clearMemory() { generation++; drafts.clear(); }
+export function memoryGeneration() { return generation; }
+export async function records(account: string): Promise<LocalRecord[]> {
+  return structuredClone([...drafts.values()].filter(row => row.account === account));
 }
-export async function records(account: string) {
-  const db = await open();
-  return new Promise<LocalRecord[]>((resolve, reject) => {
-    const request = db.transaction('records').objectStore('records').getAll();
-    request.onsuccess = () => { try { resolve(LocalRecordsSchema.parse(request.result).filter(x => x.account === account)); } catch (error) { reject(error); } };
-    request.onerror = () => reject(request.error);
-  });
+export async function persist(account: string, note: ConferenceNote, history: Snapshot<ConferenceNote>[], pending: boolean, expectedGeneration = generation) {
+  if (expectedGeneration !== generation) return;
+  drafts.set(`${account}:${note.id}`, structuredClone({ account, note: ConferenceSchema.parse(note), history, pending }));
 }
-export async function persist(account: string, note: ConferenceNote, history: Snapshot<ConferenceNote>[], pending: boolean) {
-  const db = await open();
-  return new Promise<void>((resolve, reject) => {
-    const tx = db.transaction('records', 'readwrite');
-    tx.objectStore('records').put({ key: `${account}:${note.id}`, account, note: ConferenceSchema.parse(note), history: history.map(x => ({at: x.at, note: ConferenceSchema.parse(x.note)})), pending });
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-export async function forget(account: string, id: string) {
-  const db = await open();
-  return new Promise<void>((resolve, reject) => {
-    const tx = db.transaction('records', 'readwrite');
-    tx.objectStore('records').delete(`${account}:${id}`);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+export async function forget(account: string, id: string) { drafts.delete(`${account}:${id}`); }
+// Delete legacy on-disk drafts without reading their sensitive contents.
+export async function removeLegacyStorage(): Promise<void> {
+  if (typeof indexedDB === 'undefined') return;
+  await new Promise<void>((resolve, reject) => {
+    const request = indexedDB.deleteDatabase('tamara-conferences');
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(new Error('Alte lokale Konferenzkopien konnten nicht gelöscht werden.'));
+    request.onblocked = () => reject(new Error('Bitte andere Tamara-Tabs schließen und neu laden, um alte lokale Konferenzkopien zu löschen.'));
   });
 }

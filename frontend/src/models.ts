@@ -41,7 +41,7 @@ export const AssessmentSchema = z.object({
   student_id: z.string(),
   criterion_id: z.string(),
   value: z.string(),
-  updated_by: z.string(),
+  updated_by: z.string().nullable(),
   updated_at: z.number(),
   achieved_on: z.string().nullable(),
 });
@@ -92,9 +92,9 @@ export const NoteSchema = z.object({
   id: z.string(),
   student_id: z.string(),
   content: z.string(),
-  created_by: z.string(),
+  created_by: z.string().nullable(),
   created_at: z.number(),
-  updated_by: z.string(),
+  updated_by: z.string().nullable(),
   updated_at: z.number(),
   lesson_id: z.string().nullable(),
 });
@@ -102,7 +102,7 @@ export type Note = z.infer<typeof NoteSchema>;
 export const AttendanceSchema = z.object({
   student_id: z.string(),
   status: z.string(),
-  updated_by: z.string(),
+  updated_by: z.string().nullable(),
   updated_at: z.number(),
 });
 export type Attendance = z.infer<typeof AttendanceSchema>;
@@ -118,7 +118,7 @@ export type Conference = z.infer<typeof ConferenceSchema>;
 export const LessonSchema = z.object({
   id: z.string(),
   timetable_entry_id: z.string().nullable(),
-  teacher_id: z.string(),
+  teacher_id: z.string().nullable(),
   classroom_id: z.string(),
   class_name: z.string(),
   subject_id: z.string(),
@@ -214,3 +214,9 @@ export const AuthStatusSchema = z.object({setup_required: z.boolean()});
 export type ErrorHandler = (error: unknown) => void;
 
 export type LessonContext = Pick<Lesson, "classroom_id"> & Partial<Pick<Lesson, "id" | "lesson_date" | "subject_name" | "class_name">>;
+
+export const AccountSummarySchema = TeacherSchema.extend({created_at: z.number(), owned_classrooms: z.number()});
+export type AccountSummary = z.infer<typeof AccountSummarySchema>;
+export const AccountDeletionSchema = z.object({id: z.string(), name: z.string(), email: z.string(), owned_classrooms: z.array(z.object({id: z.string(), name: z.string(), student_count: z.number()}))});
+export type AccountDeletion = z.infer<typeof AccountDeletionSchema>;
+export const PasswordResetResultSchema = z.object({token: z.string(), expires_at: z.number()});

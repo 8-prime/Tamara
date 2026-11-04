@@ -36,7 +36,6 @@ pub(crate) async fn run() -> std::result::Result<(), Box<dyn std::error::Error>>
         ))),
         db,
         auth: auth::Auth::new(setup_hash),
-        secure_cookie: std::env::var("TAMARA_SECURE_COOKIES").as_deref() == Ok("true"),
     };
     let addr = std::env::var("TAMARA_BIND").unwrap_or_else(|_| "127.0.0.1:3000".into());
     let listener = tokio::net::TcpListener::bind(&addr).await?;

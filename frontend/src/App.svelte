@@ -22,6 +22,9 @@
   } from "./models.ts";
   import { onMount, tick } from "svelte";
   import { api, errorMessage, errorStatus } from "./api.ts";
+  import { clearMemory, removeLegacyStorage } from "./conference-store.ts";
+  import AccountManagement from "./AccountManagement.svelte";
+  import ResetPassword from "./ResetPassword.svelte";
   import Status from "./Status.svelte";
   import Icon from "./Icon.svelte";
   import Attendance from "./Attendance.svelte";
@@ -34,6 +37,16 @@
   import Tasks from "./Tasks.svelte";
   import { readRoute, workspaceUrl, workAreas } from "./navigation.ts";
   let feature = $state("dashboard");
+  let accountOpen = $state(false), resetToken = $state("");
+  function clearAccount() {
+    clearMemory(); loadVersion++;
+    teacher = null; workspace = null; classrooms = []; catalog = [];
+    invitations = []; invitationToken = ""; classId = ""; periodId = "";
+    accountOpen = false; password = ""; email = ""; notice = ""; error = "";
+    window.history.replaceState({}, "", "/");
+  }
+  async function refreshTeacher() { teacher = await api(TeacherSchema, "/auth/me"); }
+
   let routePupil = $state(""),
     routeLesson = $state(""),
     routeDate = $state(""),
@@ -192,9 +205,8 @@
   function fail(e: unknown) {
     error = errorMessage(e);
     if (errorStatus(e) === 401) {
-      teacher = null;
-      workspace = null;
-      classrooms = [];
+      clearAccount();
+      error = errorMessage(e);
     }
   }
   function resetFilters(resetGrade = true) {
@@ -206,6 +218,11 @@
   }
   onMount(async () => {
     try {
+      const fragment = new URLSearchParams(window.location.hash.slice(1));
+      resetToken = fragment.get("reset-password") || "";
+      if (resetToken) window.history.replaceState({}, "", window.location.pathname);
+      await removeLegacyStorage();
+      if (resetToken) { clearMemory(); return; }
       const status = await api(AuthStatusSchema, "/auth/status");
       setupRequired = status.setup_required;
       if (setupRequired) authMode = "register";
@@ -433,15 +450,7 @@
     busy = true;
     try {
       await api("/auth/logout", { method: "POST" });
-      teacher = null;
-      workspace = null;
-      classrooms = [];
-      classId = "";
-      periodId = "";
-      email = "";
-      notice = "";
-      error = "";
-      window.history.replaceState({}, "", "/");
+      clearAccount();
     } catch (e) {
       fail(e);
     } finally {
@@ -785,6 +794,8 @@
     <div class="brand-mark">t<span>✳</span></div>
     <p>Tamara wird geladen …</p>
   </div>
+{:else if resetToken}
+  <ResetPassword token={resetToken} ondone={() => {resetToken=""; clearAccount(); authMode="login";}} />
 {:else if !teacher}
   <main class="auth-layout">
     <section class="auth-story">
@@ -942,6 +953,7 @@
       </nav>
       {#if teacher.is_admin}
         <div class="sidebar-label">ADMINISTRATION</div>
+        <button class="new-class admin-nav" onclick={() => accountOpen=true} disabled={saving || loading || busy}><Icon name="users" /> Konten verwalten</button>
         <button
           class="new-class admin-nav"
           onclick={() => openModal("invites")}
@@ -976,6 +988,7 @@
             </div>{/if}
         </div>
         <div class="topbar-right">
+          <button class="secondary" onclick={() => accountOpen=true} disabled={busy || saving}>Mein Konto</button>
           <div class="profile-avatar">{initials(teacher.name)}</div>
           <div class="topbar-profile">
             <strong>{teacher.name}</strong><small
@@ -2027,3 +2040,5 @@
     </form>
   </dialog>
 {/if}
+
+{#if teacher && accountOpen}<AccountManagement {teacher} onclose={() => accountOpen=false} onremoved={clearAccount} onrolechange={refreshTeacher} />{/if}

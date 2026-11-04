@@ -4,7 +4,7 @@
 Usage: python3 scripts/container-smoke-test.py [image-tag]
 Requires Docker; creates and removes an isolated container and volume.
 """
-import http.cookiejar
+from loopback_cookies import loopback_cookie_jar
 import json
 import re
 import subprocess
@@ -29,7 +29,7 @@ def run(image):
     volume = name + "-data"
     setup_token = "container-test-setup-token-" + uuid.uuid4().hex
     base = ""
-    jar = http.cookiejar.CookieJar()
+    jar = loopback_cookie_jar()
     client = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
 
     def call(path, method="GET", data=None, expected=200):
