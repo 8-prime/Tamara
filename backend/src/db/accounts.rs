@@ -1,6 +1,6 @@
 use super::Database;
 use crate::{
-    error::{Result, bad, missing},
+    error::{Error, ErrorKind, Result, bad, missing},
     models::{Account, Invitation, Teacher},
 };
 
@@ -371,5 +371,101 @@ impl Database {
 impl Database {
     pub(crate) async fn valid_password_reset(&self, token_hash: &str) -> Result<bool> {
         Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM password_resets WHERE token_hash=? AND expires_at>unixepoch())").bind(token_hash).fetch_one(&self.pool).await?)
+    }
+}
+
+impl Database {
+    /// Changes the login email. Users prove their identity with the password hash
+    /// they just confirmed; administrators may change any account.
+    pub(crate) async fn change_email(
+        &self,
+        actor: &str,
+        target: &str,
+        password_hash: Option<&str>,
+        email: &str,
+    ) -> Result<Teacher> {
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let allowed: bool =
+            match password_hash {
+                Some(password_hash) => sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM teachers WHERE id=? AND id=? AND password_hash=?)",
+                )
+                .bind(actor)
+                .bind(target)
+                .bind(password_hash)
+                .fetch_one(&mut *tx)
+                .await?,
+                None => {
+                    sqlx::query_scalar(
+                        "SELECT EXISTS(SELECT 1 FROM teachers WHERE id=? AND is_admin=1)",
+                    )
+                    .bind(actor)
+                    .fetch_one(&mut *tx)
+                    .await?
+                }
+            };
+        if !allowed {
+            return Err(Error(
+                ErrorKind::Forbidden,
+                "Keine Berechtigung oder Zugangsdaten wurden geändert.".into(),
+            ));
+        }
+        let taken: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM teachers WHERE email=? AND id<>?)")
+                .bind(email)
+                .bind(target)
+                .fetch_one(&mut *tx)
+                .await?;
+        if taken {
+            return Err(Error(
+                ErrorKind::Conflict,
+                "Diese E-Mail-Adresse wird bereits verwendet.".into(),
+            ));
+        }
+        let teacher: Teacher = sqlx::query_as(
+            "UPDATE teachers SET email=? WHERE id=? RETURNING id,name,email,is_admin",
+        )
+        .bind(email)
+        .bind(target)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(missing)?;
+        tx.commit().await?;
+        Ok(teacher)
+    }
+
+    /// Replaces the password, ends every other session and voids pending reset links.
+    pub(crate) async fn change_password(
+        &self,
+        teacher: &str,
+        current_hash: &str,
+        new_hash: &str,
+        keep_session: &str,
+    ) -> Result<()> {
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let updated =
+            sqlx::query("UPDATE teachers SET password_hash=? WHERE id=? AND password_hash=?")
+                .bind(new_hash)
+                .bind(teacher)
+                .bind(current_hash)
+                .execute(&mut *tx)
+                .await?;
+        if updated.rows_affected() != 1 {
+            return Err(Error(
+                ErrorKind::Forbidden,
+                "Zugangsdaten wurden geändert. Bitte erneut anmelden.".into(),
+            ));
+        }
+        sqlx::query("DELETE FROM sessions WHERE teacher_id=? AND token_hash<>?")
+            .bind(teacher)
+            .bind(keep_session)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM password_resets WHERE teacher_id=?")
+            .bind(teacher)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
     }
 }
