@@ -4,31 +4,85 @@ use crate::error::Result;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 
-/// Every reported metric, in display order. Triggers in the migration count
-/// most of them; the application counts assessments and exports.
-pub(crate) const METRICS: &[&str] = &[
-    "teacher_active",
-    "session_started",
-    "teacher_registered",
-    "classroom_created",
-    "pupil_added",
-    "lesson_created",
-    "attendance_taken",
-    "performance_recorded",
-    "performance_corrected",
-    "note_created",
-    "note_edited",
-    "homework_created",
-    "homework_handed_in",
-    "homework_rated",
-    "worksheet_uploaded",
-    "task_created",
-    "task_completed",
-    "period_created",
-    "assessment_recorded",
-    "pdf_exported",
-    "zip_exported",
-];
+/// Every counted action, in display order. The database layer counts each one
+/// in the same transaction as the write it describes; exports are counted by
+/// the API because they write nothing else.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Metric {
+    TeacherActive,
+    SessionStarted,
+    TeacherRegistered,
+    ClassroomCreated,
+    PupilAdded,
+    LessonCreated,
+    AttendanceTaken,
+    PerformanceRecorded,
+    PerformanceCorrected,
+    NoteCreated,
+    NoteEdited,
+    HomeworkCreated,
+    HomeworkHandedIn,
+    HomeworkRated,
+    WorksheetUploaded,
+    TaskCreated,
+    TaskCompleted,
+    PeriodCreated,
+    AssessmentRecorded,
+    PdfExported,
+    ZipExported,
+}
+
+impl Metric {
+    pub(crate) const ALL: [Metric; 21] = [
+        Metric::TeacherActive,
+        Metric::SessionStarted,
+        Metric::TeacherRegistered,
+        Metric::ClassroomCreated,
+        Metric::PupilAdded,
+        Metric::LessonCreated,
+        Metric::AttendanceTaken,
+        Metric::PerformanceRecorded,
+        Metric::PerformanceCorrected,
+        Metric::NoteCreated,
+        Metric::NoteEdited,
+        Metric::HomeworkCreated,
+        Metric::HomeworkHandedIn,
+        Metric::HomeworkRated,
+        Metric::WorksheetUploaded,
+        Metric::TaskCreated,
+        Metric::TaskCompleted,
+        Metric::PeriodCreated,
+        Metric::AssessmentRecorded,
+        Metric::PdfExported,
+        Metric::ZipExported,
+    ];
+
+    pub(crate) fn key(self) -> &'static str {
+        match self {
+            Metric::TeacherActive => "teacher_active",
+            Metric::SessionStarted => "session_started",
+            Metric::TeacherRegistered => "teacher_registered",
+            Metric::ClassroomCreated => "classroom_created",
+            Metric::PupilAdded => "pupil_added",
+            Metric::LessonCreated => "lesson_created",
+            Metric::AttendanceTaken => "attendance_taken",
+            Metric::PerformanceRecorded => "performance_recorded",
+            Metric::PerformanceCorrected => "performance_corrected",
+            Metric::NoteCreated => "note_created",
+            Metric::NoteEdited => "note_edited",
+            Metric::HomeworkCreated => "homework_created",
+            Metric::HomeworkHandedIn => "homework_handed_in",
+            Metric::HomeworkRated => "homework_rated",
+            Metric::WorksheetUploaded => "worksheet_uploaded",
+            Metric::TaskCreated => "task_created",
+            Metric::TaskCompleted => "task_completed",
+            Metric::PeriodCreated => "period_created",
+            Metric::AssessmentRecorded => "assessment_recorded",
+            Metric::PdfExported => "pdf_exported",
+            Metric::ZipExported => "zip_exported",
+        }
+    }
+}
 
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Bucket {
@@ -58,19 +112,19 @@ pub(crate) struct Usage {
     pub(crate) series: Vec<UsagePeriod>,
 }
 
-/// Adds `n` to today's counter within the caller's transaction or connection.
+/// Adds `n` to today's (UTC) counter, within the caller's transaction so the
+/// count commits or rolls back together with the write it describes.
 pub(super) async fn count<'e, E: sqlx::SqliteExecutor<'e>>(
     executor: E,
-    metric: &str,
+    metric: Metric,
     n: i64,
 ) -> Result<()> {
-    debug_assert!(METRICS.contains(&metric));
     if n > 0 {
         sqlx::query(
             "INSERT INTO usage_counters(day, metric, count) VALUES(date('now'), ?, ?)
              ON CONFLICT(day, metric) DO UPDATE SET count=count+excluded.count",
         )
-        .bind(metric)
+        .bind(metric.key())
         .bind(n)
         .execute(executor)
         .await?;
@@ -79,20 +133,24 @@ pub(super) async fn count<'e, E: sqlx::SqliteExecutor<'e>>(
 }
 
 impl Database {
-    pub(crate) async fn count_usage(&self, metric: &str) -> Result<()> {
+    pub(crate) async fn count_usage(&self, metric: Metric) -> Result<()> {
         count(&self.pool, metric, 1).await
     }
 
-    /// Records the teacher's first activity of the UTC day; a trigger counts it.
-    /// The condition keeps concurrent first requests from counting twice.
+    /// Counts the teacher's first activity of the UTC day. The condition keeps
+    /// concurrent first requests from counting twice.
     pub(crate) async fn mark_active(&self, teacher: &str) -> Result<()> {
-        sqlx::query(
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let first = sqlx::query(
             "UPDATE teachers SET last_active_day=date('now')
              WHERE id=? AND last_active_day IS NOT date('now')",
         )
         .bind(teacher)
-        .execute(&self.pool)
-        .await?;
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        count(&mut *tx, Metric::TeacherActive, first as i64).await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -146,7 +204,12 @@ impl Database {
         for (day, metric, count) in rows {
             daily.insert((day, metric), count);
         }
-        let zero = || METRICS.iter().map(|&m| (m, 0)).collect::<BTreeMap<_, _>>();
+        let zero = || {
+            Metric::ALL
+                .iter()
+                .map(|m| (m.key(), 0))
+                .collect::<BTreeMap<_, _>>()
+        };
         let mut totals = zero();
         let mut peak_active_teachers = 0;
         let mut series: Vec<UsagePeriod> = Vec::new();
@@ -160,14 +223,15 @@ impl Database {
             }
             let period = series.last_mut().expect("pushed above");
             period.days += 1;
-            for &metric in METRICS {
+            for metric in Metric::ALL {
+                let key = metric.key();
                 let n = daily
-                    .get(&(day.clone(), metric.to_owned()))
+                    .get(&(day.clone(), key.to_owned()))
                     .copied()
                     .unwrap_or(0);
-                *period.counts.get_mut(metric).expect("all metrics") += n;
-                *totals.get_mut(metric).expect("all metrics") += n;
-                if metric == "teacher_active" {
+                *period.counts.get_mut(key).expect("all metrics") += n;
+                *totals.get_mut(key).expect("all metrics") += n;
+                if metric == Metric::TeacherActive {
                     peak_active_teachers = peak_active_teachers.max(n);
                 }
             }

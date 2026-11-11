@@ -1,7 +1,10 @@
 use super::auth::Authenticated;
 use crate::{
     archive,
-    db::exports::{ClassExport, PdfExport},
+    db::{
+        exports::{ClassExport, PdfExport},
+        usage::Metric,
+    },
     error::{Result, internal},
     pdf,
     state::AppState,
@@ -30,7 +33,7 @@ pub(super) async fn export_pdf(
         .await
         .map_err(internal)?
         .map_err(internal)?;
-    count_export(&s, "pdf_exported").await;
+    count_export(&s, Metric::PdfExported).await;
     let mut r = Response::new(Body::from(bytes));
     r.headers_mut().insert(
         header::CONTENT_TYPE,
@@ -61,7 +64,7 @@ pub(super) async fn export_zip(
             .await
             .map_err(internal)?
             .map_err(internal)?;
-    count_export(&s, "zip_exported").await;
+    count_export(&s, Metric::ZipExported).await;
     let mut r = Response::new(Body::from(bytes));
     r.headers_mut().insert(
         header::CONTENT_TYPE,
@@ -78,7 +81,7 @@ pub(super) async fn export_zip(
 }
 
 /// Usage statistics must never block a download; a missed count is acceptable.
-async fn count_export(s: &AppState, metric: &str) {
+async fn count_export(s: &AppState, metric: Metric) {
     if let Err(error) = s.db.count_usage(metric).await {
         tracing::warn!(%error, "Could not count export");
     }

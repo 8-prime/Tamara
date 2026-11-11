@@ -348,3 +348,171 @@ async fn usage_sums_days_into_weeks_and_months_from_the_start_of_counting() {
             .await;
     }
 }
+
+#[tokio::test]
+async fn usage_counts_homework_worksheets_tasks_and_only_real_changes() {
+    let (app, _db) = fixture().await;
+    let mut admin = Client::new(app.clone());
+    admin
+        .call(
+            "/auth/register",
+            "POST",
+            registration("usage-homework@example.test", SETUP_TOKEN),
+            200,
+        )
+        .await;
+    let class = admin
+        .call(
+            "/classrooms",
+            "POST",
+            json!({"name":"3c","school_year":"2026/27"}),
+            200,
+        )
+        .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let prefix = format!("/classrooms/{class}");
+    admin
+        .call(
+            &format!("{prefix}/students"),
+            "POST",
+            json!({"names":["Kind Eins","Kind Zwei"]}),
+            200,
+        )
+        .await;
+    let subject = admin
+        .call(
+            &format!("{prefix}/subjects"),
+            "POST",
+            json!({"name":"Deutsch"}),
+            200,
+        )
+        .await;
+    let homework = admin
+        .call(
+            &format!("{prefix}/homework"),
+            "POST",
+            json!({"subject_id":subject["id"],"title":"Lesen","description":"","due_date":"2026-11-02"}),
+            200,
+        )
+        .await;
+    let hw = format!("{prefix}/homework/{}", homework["id"].as_str().unwrap());
+    let detail = admin.get(&hw).await;
+    let p0 = detail["submissions"][0]["student_id"].clone();
+    let p1 = detail["submissions"][1]["student_id"].clone();
+    let submissions = format!("{hw}/submissions");
+    for change in [
+        // Hand-in, then rating it, then the same rating again (not a new rating).
+        json!({"student_id":p0,"handed_in":true}),
+        json!({"student_id":p0,"quality":"all_correct"}),
+        json!({"student_id":p0,"quality":"all_correct"}),
+        // Rating "missing" is a rating but not a hand-in; a note alone is neither.
+        json!({"student_id":p1,"quality":"missing"}),
+        json!({"student_id":p1,"note":"Vergessen"}),
+    ] {
+        admin
+            .call(&submissions, "PATCH", json!({"changes":[change]}), 204)
+            .await;
+    }
+    // Withdrawing and handing in again counts a second hand-in.
+    admin
+        .call(
+            &submissions,
+            "PATCH",
+            json!({"changes":[{"student_id":p0,"handed_in":false}]}),
+            204,
+        )
+        .await;
+    admin
+        .call(
+            &submissions,
+            "PATCH",
+            json!({"changes":[{"student_id":p0,"handed_in":true}]}),
+            204,
+        )
+        .await;
+
+    let pdf =
+        include_bytes!("../../../entwicklungsuebersicht_mathe_DRUCKVERSION_270925.pdf").to_vec();
+    for _ in 0..2 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/api{hw}/worksheet?name=Blatt.pdf"))
+                    .header("cookie", &admin.cookie)
+                    .header("content-type", "application/pdf")
+                    .header("x-tamara-request", "1")
+                    .body(Body::from(pdf.clone()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(response.status().is_success(), "{}", response.status());
+    }
+
+    let tasks = format!("{prefix}/tasks");
+    let once = admin
+        .call(
+            &tasks,
+            "POST",
+            json!({"title":"Elternbrief","completion_mode":"once"}),
+            200,
+        )
+        .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let per_pupil = admin
+        .call(
+            &tasks,
+            "POST",
+            json!({"title":"Unterschrift","completion_mode":"per_pupil"}),
+            200,
+        )
+        .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    for (task, body) in [
+        (&once, json!({"completed":true})),
+        // Completing an already completed task again is not new work.
+        (&once, json!({"completed":true})),
+        (&per_pupil, json!({"student_id":p0,"completed":true})),
+        (&per_pupil, json!({"student_id":p1,"completed":false})),
+    ] {
+        admin
+            .call(&format!("{tasks}/{task}/completion"), "PATCH", body, 204)
+            .await;
+    }
+
+    // Saving a note unchanged is not an edit.
+    let note = admin
+        .call(
+            &format!("{prefix}/notes"),
+            "POST",
+            json!({"student_id":p0,"content":"Liest flüssig"}),
+            200,
+        )
+        .await;
+    let note_path = format!("{prefix}/notes/{}", note["id"].as_str().unwrap());
+    admin
+        .call(&note_path, "PATCH", json!({"content":"Liest flüssig"}), 200)
+        .await;
+
+    let totals = totals(&mut admin).await;
+    for (metric, expected) in [
+        ("homework_created", 1),
+        ("homework_handed_in", 2),
+        ("homework_rated", 2),
+        ("worksheet_uploaded", 2),
+        ("task_created", 2),
+        ("task_completed", 2),
+        ("note_created", 1),
+        ("note_edited", 0),
+    ] {
+        assert_eq!(totals[metric], expected, "{metric}");
+    }
+}

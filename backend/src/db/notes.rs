@@ -1,4 +1,5 @@
 use super::Database;
+use super::usage::{Metric, count};
 use crate::{
     error::{Result, missing},
     models::Note,
@@ -26,6 +27,7 @@ impl Database {
         teacher: &str,
         lesson: Option<&str>,
     ) -> Result<Note> {
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
         // The insert checks class membership of the child in the same statement.
         let note = sqlx::query_as::<_, Note>(
             "INSERT INTO student_notes(
@@ -47,9 +49,11 @@ impl Database {
         .bind(lesson)
         .bind(lesson)
         .bind(class)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(missing)?;
+        count(&mut *tx, Metric::NoteCreated, 1).await?;
+        tx.commit().await?;
         Ok(note)
     }
 
@@ -60,6 +64,13 @@ impl Database {
         content: &str,
         teacher: &str,
     ) -> Result<Note> {
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let previous: Option<String> =
+            sqlx::query_scalar("SELECT content FROM student_notes WHERE id=? AND classroom_id=?")
+                .bind(note)
+                .bind(class)
+                .fetch_optional(&mut *tx)
+                .await?;
         let note = sqlx::query_as::<_, Note>(
             "UPDATE student_notes
              SET content=?, updated_by=?, updated_at=unixepoch()
@@ -70,9 +81,12 @@ impl Database {
         .bind(teacher)
         .bind(note)
         .bind(class)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(missing)?;
+        let edited = previous.is_some_and(|previous| previous != content);
+        count(&mut *tx, Metric::NoteEdited, edited as i64).await?;
+        tx.commit().await?;
         Ok(note)
     }
 
