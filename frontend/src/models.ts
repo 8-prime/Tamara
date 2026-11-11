@@ -233,3 +233,16 @@ export const ParentConferenceSchema = z.object({
 export type ParentConference = z.infer<typeof ParentConferenceSchema>;
 export const ConferenceDocumentSchema = z.object({ id: z.string(), name: z.string(), size: z.number() });
 export type ConferenceDocument = z.infer<typeof ConferenceDocumentSchema>;
+
+// GET /api/admin/usage (backend/src/db/usage.rs): school-wide daily totals only.
+const UsageCountsSchema = z.record(z.string(), z.number());
+export const UsageSchema = z.object({
+  counting_since: z.string(),
+  from: z.string(),
+  until: z.string(),
+  days: z.number(),
+  totals: UsageCountsSchema,
+  peak_active_teachers: z.number(),
+  series: z.array(z.object({ start: z.string(), days: z.number(), counts: UsageCountsSchema })),
+});
+export type Usage = z.infer<typeof UsageSchema>;

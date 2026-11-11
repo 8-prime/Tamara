@@ -221,6 +221,14 @@ Archives live in a private directory beside the database: for `data/tamara.sqlit
 
 The backend creates one automatic backup per night at **02:00 UTC** while running, checking once a minute. On startup it catches up the latest missed nightly backup, rather than generating archives for every missed day. Automatic archives older than seven days are removed after a successful backup; at most seven are retained. Stable nightly filenames avoid duplicates on restart. Failures are logged and retried after a minute. Manual archives are never removed by automatic retention. Shutdown waits for an in-progress nightly backup to finish. Importing/restoring through the application is not implemented.
 
+## Usage statistics
+
+Administrators open **Administration → Nutzungsstatistik** (`/usage`) to see how Tamara is used across the whole school: active teachers, sign-ins, classes and pupils added, lessons planned, attendance lists, lesson performances recorded and corrected, notes written and edited, homework, hand-ins, quality ratings, worksheets, class tasks, assessment periods, competency assessments, and PDF/ZIP exports. Choose 7 days, 30 days, 12 weeks, 12 months, all counted days, or custom dates, and split the chart by day, week or month. Select a figure to chart it; the table under the chart lists every value.
+
+The statistics hold no personal data. The `usage_counters` table stores one total per action per UTC day, with no teacher, class or pupil identifiers and no content. There is no per-teacher breakdown, and nothing is collected in the browser. Counting began when migration `0013` ran, so earlier records are not counted, and deleting a record does not reduce the counts. Database triggers count in the same transaction as the write itself. The application counts competency assessments, so copying a period's assessments into a new period does not count as new work. It also counts exports, because they don't change any data. A teacher counts as active once per UTC day, on their first authenticated request. This is the only purpose of `teachers.last_active_day`. For weeks and months, the chart shows the average number of active teachers per day, because the same person active on several days can't be added up.
+
+`GET /api/admin/usage?from=YYYY-MM-DD&until=YYYY-MM-DD&bucket=day|week|month` requires an administrator session. Both dates are optional. The range is limited to the days between the start of counting and today. Weeks start on Monday. Each period in the response includes its number of counted days.
+
 ## Checks
 
 The backend's API, authentication, and database boundaries are described in [backend/README.md](backend/README.md).

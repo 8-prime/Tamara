@@ -1,14 +1,15 @@
 use super::auth::Administrator;
 use crate::{
-    error::{Error, ErrorKind, Result, internal},
+    db::usage::{Bucket, Usage},
+    error::{Error, ErrorKind, Result, bad, internal},
     models::Invitation,
     state::AppState,
     util::id,
-    validation::{email, text},
+    validation::{email, text, valid_date},
 };
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
 };
 use serde::Deserialize;
@@ -137,4 +138,41 @@ pub(super) async fn change_email(
     let teacher = s.db.change_email(&t.id, &id, None, &address).await?;
     tracing::info!(target: "tamara::security", event="email_changed", actor_id=%t.id, account_id=%id);
     Ok(Json(teacher))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct UsageQuery {
+    pub(crate) from: Option<String>,
+    pub(crate) until: Option<String>,
+    pub(crate) bucket: Option<String>,
+}
+
+/// School-wide daily totals only: no teacher, class or pupil data.
+pub(super) async fn usage(
+    State(s): State<AppState>,
+    _admin: Administrator,
+    Query(q): Query<UsageQuery>,
+) -> Result<Json<Usage>> {
+    let bucket = match q.bucket.as_deref().unwrap_or("day") {
+        "day" => Bucket::Day,
+        "week" => Bucket::Week,
+        "month" => Bucket::Month,
+        _ => return Err(bad("Bitte Tag, Woche oder Monat als Zeitraster wählen.")),
+    };
+    for date in [&q.from, &q.until].into_iter().flatten() {
+        if !valid_date(date) {
+            return Err(bad("Bitte gültige Daten im Format JJJJ-MM-TT angeben."));
+        }
+    }
+    if let (Some(from), Some(until)) = (&q.from, &q.until)
+        && from > until
+    {
+        return Err(bad("Der Zeitraum muss vor seinem Ende beginnen."));
+    }
+    // Nothing is counted before counting started or after today, which also
+    // bounds the number of days in the response.
+    let today = s.db.utc_today().await?;
+    let until = q.until.unwrap_or_else(|| today.clone()).min(today);
+    let from = q.from.unwrap_or_default();
+    Ok(Json(s.db.usage(&from, &until, bucket).await?))
 }

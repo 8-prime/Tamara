@@ -14,16 +14,28 @@ impl Database {
         .await?)
     }
 
-    pub(crate) async fn session_teacher(&self, token_hash: &str) -> Result<Option<Teacher>> {
-        Ok(sqlx::query_as::<_, Teacher>(
-            "SELECT t.id, t.name, t.email, t.is_admin
+    /// The session's teacher, and whether they were already active today (UTC).
+    pub(crate) async fn session_teacher(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<(Teacher, bool)>> {
+        #[derive(sqlx::FromRow)]
+        struct Row {
+            #[sqlx(flatten)]
+            teacher: Teacher,
+            active_today: bool,
+        }
+        Ok(sqlx::query_as::<_, Row>(
+            "SELECT t.id, t.name, t.email, t.is_admin,
+             t.last_active_day IS date('now') AS active_today
              FROM teachers t
              JOIN sessions s ON s.teacher_id=t.id
              WHERE s.token_hash=? AND s.expires_at>unixepoch()",
         )
         .bind(token_hash)
         .fetch_optional(&self.pool)
-        .await?)
+        .await?
+        .map(|row| (row.teacher, row.active_today)))
     }
 
     pub(crate) async fn login_account(&self, email: &str) -> Result<Option<Account>> {

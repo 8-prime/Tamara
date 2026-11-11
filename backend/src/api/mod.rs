@@ -141,6 +141,7 @@ pub(crate) fn routes_with_frontend(s: AppState, dist: &std::path::Path) -> Route
         )
         .route("/admin/invitations/{id}", delete(admin::revoke_invitation))
         .route("/admin/backups", post(admin::create_backup))
+        .route("/admin/usage", get(admin::usage))
         .route(
             "/classrooms",
             get(classrooms::classes).post(classrooms::create_class),
