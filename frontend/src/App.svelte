@@ -23,7 +23,10 @@
   import { onMount, tick } from "svelte";
   import { api, errorMessage, errorStatus } from "./api.ts";
   import { clearMemory, removeLegacyStorage } from "./conference-store.ts";
-  import AccountManagement from "./AccountManagement.svelte";
+  import MyAccount from "./MyAccount.svelte";
+  import AdminAccounts from "./AdminAccounts.svelte";
+  import DropdownMenu from "./DropdownMenu.svelte";
+  import { initials } from "./accounts.ts";
   import ResetPassword from "./ResetPassword.svelte";
   import Status from "./Status.svelte";
   import Icon from "./Icon.svelte";
@@ -47,6 +50,10 @@
     window.history.replaceState({}, "", "/");
   }
   async function refreshTeacher() { teacher = await api(TeacherSchema, "/auth/me"); }
+  async function adminRoleChanged() {
+    await refreshTeacher();
+    if (!teacher?.is_admin) navigate("dashboard");
+  }
 
   let routePupil = $state(""),
     routeLesson = $state(""),
@@ -194,14 +201,6 @@
     return (workspace?.assessments || []).filter(
       (a) => a.student_id === s && (!v || a.value === v),
     ).length;
-  }
-  function initials(n: string) {
-    return n
-      .split(/\s+/)
-      .map((p) => p[0])
-      .slice(0, 2)
-      .join("")
-      .toUpperCase();
   }
   function fail(e: unknown) {
     error = errorMessage(e);
@@ -748,6 +747,11 @@
       busy = false;
     }
   }
+  const profileItems = $derived([
+    { label: "Mein Konto", onselect: () => (accountOpen = true) },
+    ...(teacher?.is_admin ? [{ label: "Konten verwalten", onselect: () => navigate("accounts") }] : []),
+    { label: "Abmelden", onselect: signout, separated: true },
+  ]);
   const searchResults = $derived(
     globalSearch.trim()
       ? [
@@ -954,7 +958,14 @@
       </nav>
       {#if teacher.is_admin}
         <div class="sidebar-label">ADMINISTRATION</div>
-        <button class="new-class admin-nav" onclick={() => accountOpen=true} disabled={saving || loading || busy}><Icon name="users" /> Konten verwalten</button>
+        <a
+          class="new-class admin-nav"
+          class:active={feature === "accounts"}
+          href={workspaceUrl(classId, "accounts")}
+          aria-current={feature === "accounts" ? "page" : undefined}
+          aria-disabled={saving || loading || busy}
+          onclick={(e) => navigate("accounts", e)}><Icon name="users" /> Konten verwalten</a
+        >
         <button
           class="new-class admin-nav"
           onclick={() => openModal("invites")}
@@ -989,29 +1000,34 @@
             </div>{/if}
         </div>
         <div class="topbar-right">
-          <button class="secondary" onclick={() => accountOpen=true} disabled={busy || saving}>Mein Konto</button>
-          <div class="profile-avatar">{initials(teacher.name)}</div>
-          <div class="topbar-profile">
-            <strong>{teacher.name}</strong><small
-              >{currentArea?.global
-                ? "Lehrkraft"
-                : currentClass?.school_year || "Lehrkraft"}</small
-            >
-          </div>
-          <button
-            class="icon-button"
-            aria-label="Abmelden"
-            title="Abmelden"
-            onclick={signout}
-            disabled={saving || busy}>↪</button
+          <DropdownMenu
+            label="Kontomenü"
+            triggerLabel={`Kontomenü für ${teacher.name}`}
+            triggerClass="profile-trigger"
+            items={profileItems}
+            disabled={busy || saving}
           >
+            {#snippet trigger()}
+              <span class="profile-avatar" aria-hidden="true">{initials(teacher?.name ?? "")}</span>
+              <span class="topbar-profile">
+                <strong>{teacher?.name}</strong><small
+                  >{currentArea?.global
+                    ? "Lehrkraft"
+                    : currentClass?.school_year || "Lehrkraft"}</small
+                >
+              </span>
+              <Icon name="chevron" size={14} />
+            {/snippet}
+          </DropdownMenu>
         </div>
       </header>
       <div class="page-content">
         {#if feature !== "dashboard"}<div class="workspace-breadcrumb">
-            {["calendar"].includes(feature)
+            {feature === "calendar"
               ? "Mein Unterricht"
-              : currentClass?.name || "Dein Arbeitsplatz"}<span>›</span
+              : feature === "accounts"
+                ? "Administration"
+                : currentClass?.name || "Dein Arbeitsplatz"}<span>›</span
             >{currentArea?.label}
           </div>{/if}
         {#if ["performances", "learning"].includes(feature)}<nav
@@ -1081,6 +1097,19 @@
           {#key teacher.id}<ParentConferences accountId={teacher.id} onerror={fail} />{/key}
         {:else if feature === "conferences"}
           {#key teacher.id}<Conferences accountId={teacher.id} {classrooms} onerror={fail} />{/key}
+        {:else if feature === "accounts"}
+          {#if teacher.is_admin}
+            <!-- Reloads the list when the administrator edits their own email under "Mein Konto". -->
+            {#key `${teacher.id}:${teacher.email}`}<AdminAccounts
+                {teacher}
+                onownaccount={() => (accountOpen = true)}
+                oninvite={() => openModal("invites")}
+                onrolechange={adminRoleChanged}
+              />{/key}
+          {:else}<div class="empty-panel">
+              <h2>Kein Zugriff</h2>
+              <p>Konten können nur von der Administration verwaltet werden.</p>
+            </div>{/if}
         {:else if !classrooms.length}<div class="welcome-empty">
             <span class="large-flower">✳</span><span class="eyebrow"
               >DEIN ERSTER SCHRITT</span
@@ -2044,4 +2073,9 @@
   </dialog>
 {/if}
 
-{#if teacher && accountOpen}<AccountManagement {teacher} onclose={() => accountOpen=false} onremoved={clearAccount} onrolechange={refreshTeacher} />{/if}
+{#if teacher && accountOpen}<MyAccount
+    {teacher}
+    onchange={(updated) => (teacher = updated)}
+    onclose={() => (accountOpen = false)}
+    onremoved={clearAccount}
+  />{/if}

@@ -12,6 +12,7 @@ export const workAreas = [
   { id: "learning", label: "Lernentwicklung", icon: "chart", hidden: true },
   { id: "attendance", label: "Anwesenheit", icon: "users", hidden: true },
   { id: "homework", label: "Hausaufgaben", icon: "check", hidden: true },
+  { id: "accounts", label: "Konten verwalten", icon: "users", global: true, hidden: true },
 ];
 export function readRoute() {
   const match = window.location.pathname.match(

@@ -244,6 +244,15 @@ label {
 .admin-nav {
   font-size: 11px;
   margin: 0;
+  text-decoration: none;
+}
+.admin-nav.active {
+  background: #edf3e8;
+  color: #3a6544;
+}
+.admin-nav[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: default;
 }
 .sidebar > .sidebar-label {
   margin-top: 16px;
@@ -315,6 +324,25 @@ label {
 }
 .topbar-profile {
   min-width: 0;
+}
+.profile-trigger {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 4px 10px 4px 4px;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+.profile-trigger:hover,
+.profile-trigger[aria-expanded="true"] {
+  background: #eef5f8;
+}
+.profile-trigger > .ui-icon {
+  flex: none;
+  color: var(--muted);
+  transform: rotate(90deg);
 }
 .topbar-profile strong,
 .topbar-profile small {

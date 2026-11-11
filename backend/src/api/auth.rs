@@ -4,6 +4,7 @@ use crate::{
     error::{Result, internal},
     models::Teacher,
     state::AppState,
+    validation::email,
 };
 use axum::{
     Json,
@@ -134,6 +135,49 @@ pub(super) async fn delete_account(
         ),
     );
     Ok(response)
+}
+#[derive(Deserialize)]
+pub(super) struct ChangeEmail {
+    email: String,
+    password: String,
+}
+pub(super) async fn change_email(
+    State(s): State<AppState>,
+    Authenticated(t): Authenticated,
+    Json(input): Json<ChangeEmail>,
+) -> Result<Json<Teacher>> {
+    let address = email(&input.email)?;
+    let proof = s.auth.confirm_password(&s.db, &t, input.password).await?;
+    let teacher =
+        s.db.change_email(&t.id, &t.id, Some(&proof), &address)
+            .await?;
+    tracing::info!(target: "tamara::security", event="email_changed", actor_id=%t.id, account_id=%t.id);
+    Ok(Json(teacher))
+}
+#[derive(Deserialize)]
+pub(super) struct ChangePassword {
+    current_password: String,
+    new_password: String,
+}
+pub(super) async fn change_password(
+    State(s): State<AppState>,
+    h: HeaderMap,
+    Authenticated(t): Authenticated,
+    Json(input): Json<ChangePassword>,
+) -> Result<StatusCode> {
+    // Authentication succeeded, so the session cookie is present.
+    let token = cookie(&h).ok_or_else(|| internal("session cookie missing"))?;
+    s.auth
+        .change_password(
+            &s.db,
+            &t,
+            input.current_password,
+            input.new_password,
+            &token,
+        )
+        .await?;
+    tracing::info!(target: "tamara::security", event="password_changed", actor_id=%t.id, account_id=%t.id);
+    Ok(StatusCode::NO_CONTENT)
 }
 #[derive(Deserialize)]
 pub(super) struct ResetPassword {

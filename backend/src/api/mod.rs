@@ -112,6 +112,11 @@ pub(crate) fn routes_with_frontend(s: AppState, dist: &std::path::Path) -> Route
         .route("/auth/logout", post(auth::logout))
         .route("/auth/me", get(auth::me).delete(auth::delete_account))
         .route("/auth/me/deletion", get(auth::deletion_preview))
+        .route("/auth/me/email", axum::routing::put(auth::change_email))
+        .route(
+            "/auth/me/password",
+            axum::routing::put(auth::change_password),
+        )
         .route("/auth/reset-password", post(auth::reset_password))
         .route("/admin/accounts", get(admin::accounts))
         .route(
@@ -121,6 +126,10 @@ pub(crate) fn routes_with_frontend(s: AppState, dist: &std::path::Path) -> Route
         .route(
             "/admin/accounts/{id}/deletion",
             get(admin::deletion_preview),
+        )
+        .route(
+            "/admin/accounts/{id}/email",
+            axum::routing::put(admin::change_email),
         )
         .route(
             "/admin/accounts/{id}/password-reset",

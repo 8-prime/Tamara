@@ -126,12 +126,16 @@ impl Auth {
             .await
     }
 
-    pub(crate) async fn password_hash(password: String) -> Result<String> {
+    fn password_policy(password: &str) -> Result<()> {
         if password.chars().count() < 12 || password.len() > 256 {
             return Err(bad(
                 "Das Passwort muss mindestens 12 Zeichen lang sein (höchstens 256 Bytes).",
             ));
         }
+        Ok(())
+    }
+    pub(crate) async fn password_hash(password: String) -> Result<String> {
+        Self::password_policy(&password)?;
         tokio::task::spawn_blocking(move || {
             let salt = SaltString::encode_b64(Uuid::new_v4().as_bytes()).map_err(internal)?;
             Argon2::default()
@@ -191,6 +195,21 @@ impl Auth {
         let ph = Self::password_hash(password).await?;
         let teacher = db.reset_password(&hash(token), &ph).await?;
         Ok(teacher)
+    }
+    /// Changes the caller's password and keeps only the session making the request.
+    pub(crate) async fn change_password(
+        &self,
+        db: &Database,
+        teacher: &Teacher,
+        current: String,
+        new: String,
+        session_token: &str,
+    ) -> Result<()> {
+        Self::password_policy(&new)?;
+        let proof = self.confirm_password(db, teacher, current).await?;
+        let ph = Self::password_hash(new).await?;
+        db.change_password(&teacher.id, &proof, &ph, &hash(session_token))
+            .await
     }
     async fn session(
         &self,

@@ -405,6 +405,208 @@ async fn administrators_can_delete_accounts_and_stale_logins_cannot_recreate_ses
 }
 
 #[tokio::test]
+async fn users_change_their_own_email_after_confirming_their_password() {
+    let (mut admin, mut user, _, _, uid) = users().await;
+    let path = "/auth/me/email";
+    user.call(
+        path,
+        "PUT",
+        json!({"email":"new@example.test","password":"wrong-password-123"}),
+        403,
+    )
+    .await;
+    user.call(
+        path,
+        "PUT",
+        json!({"email":"not-an-address","password":"long-test-password-123"}),
+        400,
+    )
+    .await;
+    let taken = user
+        .call(
+            path,
+            "PUT",
+            json!({"email":"ADMIN@example.test","password":"long-test-password-123"}),
+            409,
+        )
+        .await;
+    assert_eq!(
+        taken["error"],
+        "Diese E-Mail-Adresse wird bereits verwendet."
+    );
+    let changed = user
+        .call(
+            path,
+            "PUT",
+            json!({"email":"  New.Address@Example.test ","password":"long-test-password-123"}),
+            200,
+        )
+        .await;
+    assert_eq!(changed["id"], uid.as_str());
+    assert_eq!(changed["email"], "new.address@example.test");
+    // The current session survives; only the login identifier changes.
+    assert_eq!(
+        user.get("/auth/me").await["email"],
+        "new.address@example.test"
+    );
+    // Re-saving the unchanged address is allowed.
+    user.call(
+        path,
+        "PUT",
+        json!({"email":"new.address@example.test","password":"long-test-password-123"}),
+        200,
+    )
+    .await;
+    let mut fresh = Client::new(user.app.clone());
+    fresh
+        .call(
+            "/auth/login",
+            "POST",
+            json!({"email":"user@example.test","password":"long-test-password-123"}),
+            401,
+        )
+        .await;
+    fresh
+        .call(
+            "/auth/login",
+            "POST",
+            json!({"email":"new.address@example.test","password":"long-test-password-123"}),
+            200,
+        )
+        .await;
+    let accounts = admin.get("/admin/accounts").await;
+    assert!(accounts.to_string().contains("new.address@example.test"));
+    assert!(!accounts.to_string().contains("user@example.test"));
+}
+
+#[tokio::test]
+async fn administrators_change_account_emails() {
+    let (mut admin, mut user, _, aid, uid) = users().await;
+    user.call(
+        &format!("/admin/accounts/{aid}/email"),
+        "PUT",
+        json!({"email":"taken-over@example.test"}),
+        403,
+    )
+    .await;
+    admin
+        .call(
+            &format!("/admin/accounts/{uid}/email"),
+            "PUT",
+            json!({"email":"admin@example.test"}),
+            409,
+        )
+        .await;
+    admin
+        .call(
+            "/admin/accounts/missing/email",
+            "PUT",
+            json!({"email":"nobody@example.test"}),
+            404,
+        )
+        .await;
+    // Their own login only changes through the password-confirmed endpoint.
+    admin
+        .call(
+            &format!("/admin/accounts/{aid}/email"),
+            "PUT",
+            json!({"email":"admin-new@example.test"}),
+            403,
+        )
+        .await;
+    let changed = admin
+        .call(
+            &format!("/admin/accounts/{uid}/email"),
+            "PUT",
+            json!({"email":"Renamed@Example.test"}),
+            200,
+        )
+        .await;
+    assert_eq!(changed["email"], "renamed@example.test");
+    assert_eq!(user.get("/auth/me").await["email"], "renamed@example.test");
+    let mut fresh = Client::new(user.app.clone());
+    fresh
+        .call(
+            "/auth/login",
+            "POST",
+            json!({"email":"renamed@example.test","password":"long-test-password-123"}),
+            200,
+        )
+        .await;
+}
+
+#[tokio::test]
+async fn password_changes_keep_the_current_session_and_end_all_others() {
+    let (mut admin, mut user, _, _, uid) = users().await;
+    let mut another = Client::new(user.app.clone());
+    another
+        .call(
+            "/auth/login",
+            "POST",
+            json!({"email":"user@example.test","password":"long-test-password-123"}),
+            200,
+        )
+        .await;
+    let reset = admin
+        .call(
+            &format!("/admin/accounts/{uid}/password-reset"),
+            "POST",
+            Value::Null,
+            200,
+        )
+        .await;
+    let path = "/auth/me/password";
+    user.call(
+        path,
+        "PUT",
+        json!({"current_password":"wrong-password-123","new_password":"changed-password-123"}),
+        403,
+    )
+    .await;
+    user.call(
+        path,
+        "PUT",
+        json!({"current_password":"long-test-password-123","new_password":"short"}),
+        400,
+    )
+    .await;
+    user.call(
+        path,
+        "PUT",
+        json!({"current_password":"long-test-password-123","new_password":"changed-password-123"}),
+        204,
+    )
+    .await;
+    assert!(user.get("/auth/me").await["id"].is_string());
+    another.call("/auth/me", "GET", Value::Null, 401).await;
+    // A pending reset link no longer works after the owner changed the password.
+    another
+        .call(
+            "/auth/reset-password",
+            "POST",
+            json!({"token":reset["token"],"password":"reset-password-123"}),
+            400,
+        )
+        .await;
+    another
+        .call(
+            "/auth/login",
+            "POST",
+            json!({"email":"user@example.test","password":"long-test-password-123"}),
+            401,
+        )
+        .await;
+    another
+        .call(
+            "/auth/login",
+            "POST",
+            json!({"email":"user@example.test","password":"changed-password-123"}),
+            200,
+        )
+        .await;
+}
+
+#[tokio::test]
 async fn account_migration_preserves_existing_data_and_foreign_keys() {
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
@@ -514,6 +716,8 @@ async fn security_events_exclude_passwords_tokens_emails_and_note_contents() {
         user.call("/conferences/private","PUT",json!({"date":"2026-11-03","content":"SECRET_NOTE_CONTENT","title":null,"classroom_id":null}),200).await;
         user.call("/auth/login","POST",json!({"email":"user@example.test","password":"SECRET_WRONG_PASSWORD"}),401).await;
         user.call("/admin/accounts","GET",Value::Null,403).await;
+        user.call("/auth/me/password","PUT",json!({"current_password":"long-test-password-123","new_password":"SECRET_NEW_PASSWORD"}),204).await;
+        user.call("/auth/me/email","PUT",json!({"email":"changed@example.test","password":"SECRET_NEW_PASSWORD"}),200).await;
         user.call("/auth/logout","POST",Value::Null,204).await;
         reset["token"].as_str().unwrap().to_owned()
     }.await;
@@ -524,6 +728,8 @@ async fn security_events_exclude_passwords_tokens_emails_and_note_contents() {
         "password_reset_issued",
         "mutation_completed",
         "request_denied",
+        "password_changed",
+        "email_changed",
         "logout",
     ] {
         assert!(logs.contains(event), "Missing {event}: {logs}");
@@ -535,6 +741,8 @@ async fn security_events_exclude_passwords_tokens_emails_and_note_contents() {
         "long-test-password-123",
         "user@example.test",
         "admin@example.test",
+        "changed@example.test",
+        "SECRET_NEW_PASSWORD",
     ] {
         assert!(!logs.contains(secret));
     }

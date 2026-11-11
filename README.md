@@ -195,7 +195,11 @@ Conference drafts and revision history are held only in memory for the current s
 
 ## Accounts, deletion and password recovery
 
-**Administration → Konten verwalten** lists registered accounts, their registration dates, roles and owned-class counts. Administrators can grant/revoke administrator rights, issue password reset links and delete accounts. **Mein Konto** lets every teacher delete their own account. The last administrator cannot be deleted or demoted; appoint another administrator first.
+The avatar and name in the top bar open the account menu: **Mein Konto**, **Konten verwalten** (administrators only) and **Abmelden**.
+
+**Mein Konto** is the same for every teacher. It changes the login email address and the password, and deletes the own account. Both changes require the current password. A new email address must not belong to another account; the current session stays signed in. Changing the password signs out all other sessions and voids any pending reset link. There is no confirmation email, since email delivery is not implemented.
+
+**Administration → Konten verwalten** (`/accounts`) is a page listing registered accounts with role, owned-class count and registration date. It can be searched by name or email, filtered by role and sorted by name or newest registration. Each account's **⋯** menu changes its login email, issues a password reset link, grants/revokes administrator rights or deletes the account. Administrators change their own email under **Mein Konto**, with their password. The last administrator cannot be deleted or demoted; appoint another administrator first.
 
 Deletion requires the acting user's current password and a confirmation preview listing the target account's owned classes and pupil counts. It permanently removes the account, sessions, password reset tokens, associated invitations, private conference notes and all owned classes with their pupil records, worksheets, tasks, lessons and assessments, including classes shared with colleagues. Records in other teachers' classes remain, with the deleted account's author/schedule references set to null; this does not redact names typed into other people's free-text records. Changes to the owned-class list invalidate the confirmation. All deletion writes commit or roll back together. Existing backup archives are unchanged; retention and encryption remain separate deployment decisions.
 
@@ -205,7 +209,7 @@ Migration `0011_account_lifecycle.sql` rebuilds teacher-referencing tables to pe
 
 ## Security logging
 
-Security events are emitted to the process log with target `tamara::security` (included in the default `tamara=info` filter). Events cover registration, successful/failed login, logout, denied/throttled requests, mutation-guard failures, successful API mutations, administrator changes, account deletion, reset-link issuance/completion, invitation creation/revocation, sharing changes, manual backups and assessment PDF/ZIP exports. Account-specific events use opaque account IDs; generic mutation events record HTTP method, matched route template and status. Logs deliberately exclude passwords, raw session/invitation/reset tokens, email addresses, pupil names and note contents. This is an operational security log, not an immutable record of every field edit or read.
+Security events are emitted to the process log with target `tamara::security` (included in the default `tamara=info` filter). Events cover registration, successful/failed login, logout, denied/throttled requests, mutation-guard failures, successful API mutations, administrator changes, email/password changes, account deletion, reset-link issuance/completion, invitation creation/revocation, sharing changes, manual backups and assessment PDF/ZIP exports. Account-specific events use opaque account IDs; generic mutation events record HTTP method, matched route template and status. Logs deliberately exclude passwords, raw session/invitation/reset tokens, email addresses, pupil names and note contents. This is an operational security log, not an immutable record of every field edit or read.
 
 Keep application/proxy logs private, avoid logging request bodies or credentials, and configure log rotation/retention at the deployment layer. No log retention policy is introduced by this change.
 

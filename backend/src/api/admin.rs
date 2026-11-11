@@ -4,7 +4,7 @@ use crate::{
     models::Invitation,
     state::AppState,
     util::id,
-    validation::text,
+    validation::{email, text},
 };
 use axum::{
     Json,
@@ -115,4 +115,26 @@ pub(super) async fn password_reset(
             .await?;
     tracing::info!(target: "tamara::security", event="password_reset_issued", actor_id=%t.id, account_id=%id);
     Ok(Json(json!({"token":token,"expires_at":expires})))
+}
+#[derive(Deserialize)]
+pub(super) struct AccountEmail {
+    email: String,
+}
+pub(super) async fn change_email(
+    State(s): State<AppState>,
+    Administrator(t): Administrator,
+    Path(id): Path<String>,
+    Json(input): Json<AccountEmail>,
+) -> Result<Json<crate::models::Teacher>> {
+    if id == t.id {
+        // Changing one's own login requires the password; see /auth/me/email.
+        return Err(Error(
+            ErrorKind::Forbidden,
+            "Die eigene E-Mail-Adresse wird unter „Mein Konto“ geändert.".into(),
+        ));
+    }
+    let address = email(&input.email)?;
+    let teacher = s.db.change_email(&t.id, &id, None, &address).await?;
+    tracing::info!(target: "tamara::security", event="email_changed", actor_id=%t.id, account_id=%id);
+    Ok(Json(teacher))
 }
