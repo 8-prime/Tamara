@@ -1,4 +1,5 @@
 use super::Database;
+use super::usage::{Metric, count};
 use crate::{
     error::{Error, ErrorKind, Result, bad, missing},
     models::{Account, Invitation, Teacher},
@@ -14,16 +15,28 @@ impl Database {
         .await?)
     }
 
-    pub(crate) async fn session_teacher(&self, token_hash: &str) -> Result<Option<Teacher>> {
-        Ok(sqlx::query_as::<_, Teacher>(
-            "SELECT t.id, t.name, t.email, t.is_admin
+    /// The session's teacher, and whether they were already active today (UTC).
+    pub(crate) async fn session_teacher(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<(Teacher, bool)>> {
+        #[derive(sqlx::FromRow)]
+        struct Row {
+            #[sqlx(flatten)]
+            teacher: Teacher,
+            active_today: bool,
+        }
+        Ok(sqlx::query_as::<_, Row>(
+            "SELECT t.id, t.name, t.email, t.is_admin,
+             t.last_active_day IS date('now') AS active_today
              FROM teachers t
              JOIN sessions s ON s.teacher_id=t.id
              WHERE s.token_hash=? AND s.expires_at>unixepoch()",
         )
         .bind(token_hash)
         .fetch_optional(&self.pool)
-        .await?)
+        .await?
+        .map(|row| (row.teacher, row.active_today)))
     }
 
     pub(crate) async fn login_account(&self, email: &str) -> Result<Option<Account>> {
@@ -48,14 +61,17 @@ impl Database {
         )
         .execute(&self.pool)
         .await?;
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
         let inserted = sqlx::query("INSERT INTO sessions(token_hash,teacher_id,expires_at) SELECT ?,id,unixepoch()+604800 FROM teachers WHERE id=? AND password_hash=?")
-            .bind(token_hash).bind(teacher).bind(password_hash).execute(&self.pool).await?;
+            .bind(token_hash).bind(teacher).bind(password_hash).execute(&mut *tx).await?;
         if inserted.rows_affected() != 1 {
             return Err(crate::error::Error(
                 crate::error::ErrorKind::Unauthorized,
                 "Zugangsdaten wurden geändert. Bitte erneut anmelden.".into(),
             ));
         }
+        count(&mut *tx, Metric::SessionStarted, 1).await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -136,6 +152,7 @@ impl Database {
             .execute(&mut *tx)
             .await?;
         }
+        super::usage::count(&mut *tx, Metric::TeacherRegistered, 1).await?;
         tx.commit().await?;
         Ok(t)
     }

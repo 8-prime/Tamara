@@ -11,6 +11,7 @@ mod notes;
 mod parent_conferences;
 mod pupil_history;
 mod teaching;
+pub(crate) mod usage;
 
 use crate::pdf;
 use sqlx::{

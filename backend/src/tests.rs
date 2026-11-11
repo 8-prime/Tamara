@@ -33,6 +33,7 @@ mod layers;
 mod notes;
 mod parent_conferences;
 mod teaching;
+mod usage;
 
 struct Client {
     app: Router,

@@ -1,5 +1,6 @@
 use super::Database;
 use super::homework;
+use super::usage::{Metric, count};
 use crate::{
     error::{Result, bad, missing},
     models::{Classroom, Collaborator, Student},
@@ -57,6 +58,7 @@ impl Database {
         .bind(teacher)
         .execute(&mut *tx)
         .await?;
+        count(&mut *tx, Metric::ClassroomCreated, 1).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -85,6 +87,7 @@ impl Database {
 
     pub(crate) async fn add_students(&self, class: &str, names: Vec<String>) -> Result<()> {
         let mut tx = self.pool.begin().await?;
+        count(&mut *tx, Metric::PupilAdded, names.len() as i64).await?;
         for n in names {
             sqlx::query(
                 "INSERT INTO students(id, classroom_id, name)

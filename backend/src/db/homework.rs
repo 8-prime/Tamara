@@ -1,4 +1,5 @@
 use super::Database;
+use super::usage::{Metric, count};
 use crate::{
     error::{Error, ErrorKind, Result, bad, missing},
     models::{Homework, HomeworkInput, Subject, Submission, SubmissionChange},
@@ -179,6 +180,7 @@ impl Database {
         if assigned == 0 {
             return Err(bad("Bitte zuerst Kinder zur Klasse hinzufügen."));
         }
+        count(&mut *tx, Metric::HomeworkCreated, 1).await?;
         tx.commit().await?;
         Ok(id)
     }
@@ -223,6 +225,7 @@ impl Database {
         let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
         check_homework(&mut tx, class, homework).await?;
         let mut seen = HashSet::new();
+        let (mut handed_in, mut rated) = (0, 0);
         for ch in changes {
             if !seen.insert(ch.student_id.clone()) {
                 return Err(bad("Ein Kind wurde mehrfach angegeben."));
@@ -254,7 +257,19 @@ impl Database {
                     return Err(bad("Abgabe und Qualität widersprechen sich."));
                 }
             }
-            if sqlx::query(
+            let previous: Option<(bool, Option<String>)> = sqlx::query_as(
+                "SELECT handed_in_at IS NOT NULL, quality FROM homework_submissions
+                 WHERE homework_id=? AND classroom_id=? AND student_id=?",
+            )
+            .bind(homework)
+            .bind(class)
+            .bind(&ch.student_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            let Some((was_handed_in, previous_quality)) = previous else {
+                return Err(bad("Dieses Kind gehört nicht zu dieser Hausaufgabe."));
+            };
+            let (is_handed_in, new_quality): (bool, Option<String>) = sqlx::query_as(
                 "UPDATE homework_submissions
              SET handed_in_at=CASE
                  WHEN ?='missing' OR ?=0 THEN NULL
@@ -265,7 +280,8 @@ impl Database {
                  WHEN ?=0 OR (?=1 AND quality='missing') THEN NULL
                  ELSE quality END,
              note=COALESCE(?, note), updated_by=?
-             WHERE homework_id=? AND classroom_id=? AND student_id=?",
+             WHERE homework_id=? AND classroom_id=? AND student_id=?
+             RETURNING handed_in_at IS NOT NULL, quality",
             )
             .bind(quality)
             .bind(ch.handed_in)
@@ -280,14 +296,13 @@ impl Database {
             .bind(homework)
             .bind(class)
             .bind(ch.student_id)
-            .execute(&mut *tx)
-            .await?
-            .rows_affected()
-                != 1
-            {
-                return Err(bad("Dieses Kind gehört nicht zu dieser Hausaufgabe."));
-            }
+            .fetch_one(&mut *tx)
+            .await?;
+            handed_in += i64::from(!was_handed_in && is_handed_in);
+            rated += i64::from(new_quality.is_some() && new_quality != previous_quality);
         }
+        count(&mut *tx, Metric::HomeworkHandedIn, handed_in).await?;
+        count(&mut *tx, Metric::HomeworkRated, rated).await?;
         reconcile(&mut tx, class).await?;
         tx.commit().await?;
         Ok(())
@@ -352,6 +367,7 @@ impl Database {
         .bind(bytes)
         .execute(&mut *tx)
         .await?;
+        count(&mut *tx, Metric::WorksheetUploaded, 1).await?;
         tx.commit().await?;
         Ok(())
     }

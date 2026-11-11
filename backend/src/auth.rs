@@ -44,9 +44,15 @@ impl Auth {
     pub(crate) async fn authenticate(&self, db: &Database, token: Option<&str>) -> Result<Teacher> {
         let token =
             token.ok_or_else(|| Error(ErrorKind::Unauthorized, "Bitte anmelden.".into()))?;
-        db.session_teacher(&hash(token))
+        let (teacher, active_today) = db
+            .session_teacher(&hash(token))
             .await?
-            .ok_or_else(|| Error(ErrorKind::Unauthorized, "Bitte erneut anmelden.".into()))
+            .ok_or_else(|| Error(ErrorKind::Unauthorized, "Bitte erneut anmelden.".into()))?;
+        // Usage statistics must never block a request; a missed count is acceptable.
+        if !active_today && let Err(error) = db.mark_active(&teacher.id).await {
+            tracing::warn!(%error, "Could not record daily activity");
+        }
+        Ok(teacher)
     }
 
     fn throttle(&self, key: &str) -> Result<()> {

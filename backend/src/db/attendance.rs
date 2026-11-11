@@ -1,4 +1,5 @@
 use super::Database;
+use super::usage::{Metric, count};
 use crate::{
     error::{Result, bad},
     models::{Attendance, AttendanceChange},
@@ -48,6 +49,14 @@ impl Database {
                 return Err(bad("Die Anwesenheit muss present, absent oder null sein."));
             }
         }
+        // One attendance list per class and date: count it when its first entry appears.
+        let listed =
+            "SELECT EXISTS(SELECT 1 FROM attendance WHERE classroom_id=? AND attendance_date=?)";
+        let existed: bool = sqlx::query_scalar(listed)
+            .bind(class)
+            .bind(date)
+            .fetch_one(&mut *tx)
+            .await?;
         for ch in changes {
             if let Some(status) = ch.status {
                 sqlx::query(
@@ -79,6 +88,17 @@ impl Database {
                 .await?;
             }
         }
+        let exists: bool = sqlx::query_scalar(listed)
+            .bind(class)
+            .bind(date)
+            .fetch_one(&mut *tx)
+            .await?;
+        count(
+            &mut *tx,
+            Metric::AttendanceTaken,
+            (!existed && exists) as i64,
+        )
+        .await?;
         tx.commit().await?;
         Ok(())
     }

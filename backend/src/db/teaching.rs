@@ -1,4 +1,5 @@
 use super::Database;
+use super::usage::{Metric, count};
 use crate::{
     error::{Result, bad, missing},
     models::teaching::{
@@ -111,6 +112,7 @@ impl Database {
               .bind(&input.starts_at).bind(&input.ends_at).bind(&input.room).bind(&input.topic).bind(&input.learning_goals)
               .execute(&mut *tx).await?;
         }
+        count(&mut *tx, Metric::LessonCreated, dates.len() as i64).await?;
         tx.commit().await?;
         Ok(first)
     }
@@ -174,16 +176,34 @@ impl Database {
         teacher: &str,
         input: &Performance,
     ) -> Result<()> {
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let previous: Option<(i64, String)> = sqlx::query_as(
+            "SELECT rating,observation FROM lesson_performances WHERE lesson_id=? AND student_id=?",
+        )
+        .bind(&lesson.id)
+        .bind(&input.student_id)
+        .fetch_optional(&mut *tx)
+        .await?;
         let saved = sqlx::query("INSERT INTO lesson_performances(lesson_id,classroom_id,student_id,rating,observation,updated_by)
           SELECT ?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM students WHERE id=? AND classroom_id=?)
           AND EXISTS(SELECT 1 FROM lessons WHERE id=? AND status='scheduled')
           ON CONFLICT(lesson_id,student_id) DO UPDATE SET rating=excluded.rating,observation=excluded.observation,
           updated_by=excluded.updated_by,updated_at=unixepoch()")
           .bind(&lesson.id).bind(&lesson.classroom_id).bind(&input.student_id).bind(input.rating).bind(&input.observation).bind(teacher)
-          .bind(&input.student_id).bind(&lesson.classroom_id).bind(&lesson.id).execute(&self.pool).await?;
+          .bind(&input.student_id).bind(&lesson.classroom_id).bind(&lesson.id).execute(&mut *tx).await?;
         if saved.rows_affected() != 1 {
             return Err(bad("Kind oder aktive Stunde nicht gefunden."));
         }
+        match previous {
+            None => count(&mut *tx, Metric::PerformanceRecorded, 1).await?,
+            Some((rating, observation))
+                if rating != input.rating || observation != input.observation =>
+            {
+                count(&mut *tx, Metric::PerformanceCorrected, 1).await?
+            }
+            Some(_) => {}
+        }
+        tx.commit().await?;
         Ok(())
     }
 
@@ -228,6 +248,7 @@ impl Database {
         sqlx::query("INSERT INTO class_tasks(id,classroom_id,lesson_id,title,description,completion_mode,due_date,created_by) VALUES(?,?,?,?,?,?,?,?)")
           .bind(&task).bind(class).bind(&input.lesson_id).bind(&input.title).bind(&input.description)
           .bind(&input.completion_mode).bind(&input.due_date).bind(teacher).execute(&mut *tx).await?;
+        count(&mut *tx, Metric::TaskCreated, 1).await?;
         if input.completion_mode == "per_pupil" {
             let assigned = sqlx::query("INSERT INTO class_task_pupils(task_id,classroom_id,student_id) SELECT ?,classroom_id,id FROM students WHERE classroom_id=?")
               .bind(&task).bind(class).execute(&mut *tx).await?;
@@ -261,10 +282,18 @@ impl Database {
         completed: bool,
         teacher: &str,
     ) -> Result<()> {
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let was_open: Option<bool> = if let Some(student) = student {
+            sqlx::query_scalar("SELECT completed_at IS NULL FROM class_task_pupils WHERE classroom_id=? AND task_id=? AND student_id=?")
+              .bind(class).bind(task).bind(student).fetch_optional(&mut *tx).await?
+        } else {
+            sqlx::query_scalar("SELECT completed_at IS NULL FROM class_tasks WHERE classroom_id=? AND id=? AND completion_mode='once'")
+              .bind(class).bind(task).fetch_optional(&mut *tx).await?
+        };
         let changed = if let Some(student) = student {
             sqlx::query("UPDATE class_task_pupils SET completed_at=CASE WHEN ? THEN unixepoch() ELSE NULL END,updated_by=?
               WHERE classroom_id=? AND task_id=? AND student_id=?")
-              .bind(completed).bind(teacher).bind(class).bind(task).bind(student).execute(&self.pool).await?
+              .bind(completed).bind(teacher).bind(class).bind(task).bind(student).execute(&mut *tx).await?
         } else {
             sqlx::query(
                 "UPDATE class_tasks SET completed_at=CASE WHEN ? THEN unixepoch() ELSE NULL END
@@ -273,12 +302,15 @@ impl Database {
             .bind(completed)
             .bind(class)
             .bind(task)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?
         };
         if changed.rows_affected() != 1 {
             return Err(missing());
         }
+        let newly_completed = completed && was_open == Some(true);
+        count(&mut *tx, Metric::TaskCompleted, newly_completed as i64).await?;
+        tx.commit().await?;
         Ok(())
     }
 

@@ -39,6 +39,7 @@
   import Conferences from "./Conferences.svelte";
   import Teaching from "./Teaching.svelte";
   import Tasks from "./Tasks.svelte";
+  import Usage from "./Usage.svelte";
   import { readRoute, workspaceUrl, workAreas } from "./navigation.ts";
   let feature = $state("dashboard");
   let accountOpen = $state(false), resetToken = $state("");
@@ -978,6 +979,15 @@
           disabled={saving || loading || busy}
           ><Icon name="backup" /> Datenbank sichern</button
         >
+        <a
+          class="new-class admin-nav"
+          class:active={feature === "usage"}
+          href={workspaceUrl(classId, "usage")}
+          aria-current={feature === "usage" ? "page" : undefined}
+          aria-disabled={saving || loading || busy}
+          onclick={(e) => navigate("usage", e)}
+          ><Icon name="chart" /> Nutzungsstatistik</a
+        >
       {/if}
       <div class="sidebar-footer">
         <Icon name="leaf" /><span>Mehr Zeit für deine Klasse.</span>
@@ -1025,7 +1035,7 @@
         {#if feature !== "dashboard"}<div class="workspace-breadcrumb">
             {feature === "calendar"
               ? "Mein Unterricht"
-              : feature === "accounts"
+              : ["accounts", "usage"].includes(feature)
                 ? "Administration"
                 : currentClass?.name || "Dein Arbeitsplatz"}<span>›</span
             >{currentArea?.label}
@@ -1109,6 +1119,13 @@
           {:else}<div class="empty-panel">
               <h2>Kein Zugriff</h2>
               <p>Konten können nur von der Administration verwaltet werden.</p>
+            </div>{/if}
+        {:else if feature === "usage"}
+          {#if teacher.is_admin}<Usage onerror={fail} />{:else}<div
+              class="empty-panel"
+            >
+              <h2>Kein Zugriff</h2>
+              <p>Die Nutzungsstatistik ist nur für die Administration sichtbar.</p>
             </div>{/if}
         {:else if !classrooms.length}<div class="welcome-empty">
             <span class="large-flower">✳</span><span class="eyebrow"

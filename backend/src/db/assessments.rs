@@ -1,4 +1,5 @@
 use super::Database;
+use super::usage::{Metric, count};
 use crate::{
     error::{Result, bad, missing},
     models::{Assessment, AssessmentChange, Period},
@@ -65,6 +66,7 @@ impl Database {
         .bind(teacher)
         .execute(&mut *tx)
         .await?;
+        count(&mut *tx, Metric::PeriodCreated, 1).await?;
         if let Some(source) = source_period_id {
             sqlx::query(
                 "INSERT INTO math_assessments(classroom_id, period_id, student_id,
@@ -120,6 +122,7 @@ impl Database {
                 ));
             }
         }
+        let recorded = changes.iter().filter(|ch| ch.value.is_some()).count() as i64;
         for ch in changes {
             if let Some(value) = ch.value {
                 // Explicit dates allow earlier observations. Re-saving an achieved
@@ -160,6 +163,7 @@ impl Database {
                 .await?;
             }
         }
+        count(&mut *tx, Metric::AssessmentRecorded, recorded).await?;
         tx.commit().await?;
         Ok(())
     }
